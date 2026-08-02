@@ -14,7 +14,7 @@
 // pattern (testcard.c) for DEBUG_TESTCARD_SECONDS before handing off to the
 // game. Set to 0 to skip the test card and boot straight into the game.
 #ifndef DEBUG_TESTCARD
-#define DEBUG_TESTCARD 1
+#define DEBUG_TESTCARD 0
 #endif
 #define DEBUG_TESTCARD_SECONDS 5
 
