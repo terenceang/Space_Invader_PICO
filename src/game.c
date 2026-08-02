@@ -58,36 +58,22 @@ static bool s_mid_screen_fired;
 // strips of 32 bytes (256 bits) each - byte (col*32 + row/8), bit (row%8) -
 // because the CPU draws into it in the CRT's native (physically rotated)
 // scan order. See Emulator.md's "Screen orientation" section for the full
-// derivation of both branches below; summary:
-//
-// - SI_DISPLAY_ROTATED_CCW == 0 (normal landscape monitor): un-rotate video
-//   RAM into a normal upright wide image - displayed row `ay` (0 = top)
-//   comes from raw column `(SI_ARCADE_HEIGHT - 1 - ay)`, bits read
-//   low-to-high become pixels left-to-right.
-// - SI_DISPLAY_ROTATED_CCW == 1 (physical monitor mounted rotated 90
-//   degrees CCW, matching the real cabinet): transmit the image rotated a
-//   further 180 degrees from the landscape case, so that combined with the
-//   physical CCW mount it comes out upright - raw column read directly
-//   (`ay`, not flipped), bits read high-to-low (flipped) become pixels
-//   left-to-right.
+// derivation; summary: which raw VRAM column feeds which transmitted row
+// (`col` below), and therefore where the overlay bands fall, is the SAME
+// in both orientation modes - a screen-plane rotation only changes which
+// direction each row's bits should be read in (`bitpos` below). Getting
+// this backwards (flipping `col` instead of `bitpos`, or vice versa) is
+// what produces a left-right mirrored image with the overlay bands in the
+// wrong place, which is exactly the bug an earlier version of this
+// function had.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
-#if SI_DISPLAY_ROTATED_CCW
-    unsigned col = ay;
-    unsigned landscape_row = (SI_ARCADE_HEIGHT - 1) - ay; // for overlay bands below
-#else
     unsigned col = (SI_ARCADE_HEIGHT - 1) - ay;
-    unsigned landscape_row = ay;
-#endif
     const uint8_t *column = vram + (size_t)col * 32;
 
-    // Overlay bands are always keyed off the row's position in the
-    // upright-landscape sense, regardless of which physical orientation
-    // we're transmitting for - otherwise the red/green bands would end up
-    // swapped top-for-bottom in rotated mode.
     uint16_t lit_color = COLOR_WHITE;
-    if (landscape_row < SI_OVERLAY_RED_ROWS)
+    if (ay < SI_OVERLAY_RED_ROWS)
         lit_color = COLOR_RED;
-    else if (landscape_row >= SI_ARCADE_HEIGHT - SI_OVERLAY_GREEN_ROWS)
+    else if (ay >= SI_ARCADE_HEIGHT - SI_OVERLAY_GREEN_ROWS)
         lit_color = COLOR_GREEN;
 
     for (unsigned x = 0; x < SI_ARCADE_WIDTH; ++x) {

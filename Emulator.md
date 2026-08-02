@@ -137,46 +137,39 @@ would want. Video RAM is 7168 bytes = 224 columns x 32 bytes each (256 bits
 per column): byte `col*32 + row/8`, bit `row%8`.
 
 `render_arcade_row()` in `src/game.c` supports both physical setups via
-`SI_DISPLAY_ROTATED_CCW` in `src/display_config.h`:
+`SI_DISPLAY_ROTATED_CCW` in `src/display_config.h`. **Which raw VRAM column
+feeds which transmitted row (`col`), and therefore where the overlay bands
+fall, is identical in both modes.** A 90-degree screen-plane rotation only
+swaps which of the transmitted image's two axes ends up "horizontal" vs
+"vertical" for the viewer standing in front of the physically-rotated
+monitor - it doesn't change which raw column belongs at which output row.
+The only thing that needs to differ between orientations is `bitpos`: the
+direction each row's 256 bits are read in to become that row's pixels,
+left to right:
 
 - **`SI_DISPLAY_ROTATED_CCW == 0`** - a normal, un-rotated landscape
-  monitor (the common case for a hobbyist display, and this project's
-  original default before the cabinet-accurate portrait mount was wired
-  up). Un-rotates video RAM's native vertical addressing into a normal
-  upright wide image: displayed row `ay` (0 = top) reads from raw column
-  `223 - ay`, and that column's 256 bits become the row's 256 pixels read
-  low-bit-first, left to right.
+  monitor: `bitpos = x` (low-bit-first).
 - **`SI_DISPLAY_ROTATED_CCW == 1`** (default) - the physical display is
   itself mounted rotated 90 degrees **counter-clockwise**, matching the
-  real cabinet's vertical monitor. In this case the framebuffer we
-  transmit should show the landscape-case image rotated a *further* 180
-  degrees, so that combined with the physical CCW mount downstream, the
-  viewer sees an upright image: raw column is read directly as `ay` (not
-  flipped), and the 256 bits are read high-bit-first (flipped) to become
-  pixels left to right. The overlay bands (below) are computed from
-  `223 - ay` in this mode specifically so red/green don't end up swapped
-  top-for-bottom.
+  real cabinet's vertical monitor: `bitpos = 255 - x` (high-bit-first -
+  i.e. each row is read in the opposite direction).
 
-  *Derivation, for anyone changing this*: our DVI engine's transmission
-  timing is fixed at 640x480p60 landscape (see `Video.md`) regardless of
-  how the physical screen is mounted - a physical rotation is applied
-  downstream of whatever we send, by the monitor. If `T` is the frame we
-  transmit and the monitor is rotated CCW, the viewer perceives
-  `CCW90(T)`. We want that to equal the correct upright image, which -
-  since raw video RAM read directly (no software rotation at all) is
-  itself the correct image for an *un-rotated* vertical monitor - works
-  out to `CW90(landscape)`, where `landscape` is this file's
-  `SI_DISPLAY_ROTATED_CCW == 0` output. Solving `CCW90(T) = CW90(landscape)`
-  for `T` gives `T = CW90(CW90(landscape))`, i.e. `landscape` rotated a
-  further 180 degrees - which is exactly "flip the column that was
-  flipped, and flip the bit-read that wasn't."
+An earlier version of this function got this backwards - it flipped `col`
+between modes instead of `bitpos` (and consequently needed a second,
+separately-flipped reference just to keep the overlay bands from landing
+on the wrong rows). That produced a left-right mirrored image with the
+overlay bands in the wrong place - reported after testing on real
+hardware. If you're changing this again: `col` selects *which row of the
+game* ends up at a given output position (this shouldn't depend on screen
+orientation at all - the same game row is still the same game row); only
+`bitpos` needs to flip, because that's the axis a screen-plane rotation
+actually swaps.
 
 Either way, the 256x224 active image is centered in the 320x240
 framebuffer (`SI_FB_X_OFFSET`/`SI_FB_Y_OFFSET`, 16px/8px black letterbox
 border) rather than stretched, to keep pixels square. The letterbox
 dimensions are identical in both modes - only the pixel *sourcing* inside
-that box changes - since a rotation doesn't change the image's bounding
-box, only its content's arrangement within it.
+that box changes.
 
 ## Color overlay
 
@@ -187,10 +180,10 @@ green across the bottom ~40 rows (shields, player ship), and clear
 elsewhere. `render_arcade_row()` reproduces this by tinting lit pixels
 based on which row band they fall in (`SI_OVERLAY_RED_ROWS`,
 `SI_OVERLAY_GREEN_ROWS`) - purely a video-conversion-stage cosmetic; it has
-no effect on and no input from the CPU emulation. The band check always
-uses the row's position in upright-landscape terms (see the "Screen
-orientation" section above) regardless of `SI_DISPLAY_ROTATED_CCW`, so the
-red/green bands land in the right place either way.
+no effect on and no input from the CPU emulation. The band check uses `ay`
+directly and needs no orientation-specific handling, since (per the
+"Screen orientation" section above) `col` - and therefore which game row
+a given `ay` corresponds to - doesn't change between orientation modes.
 
 ## Limitations (this pass: CPU core + video only)
 
