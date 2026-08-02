@@ -158,20 +158,25 @@ static uint16_t apply_scanline(uint16_t color, unsigned lx) {
 // SI_DISPLAY_ROTATION == 0: normal, un-rotated landscape monitor - output
 // keeps the source's own 256x224 shape.
 // SI_DISPLAY_ROTATION == 180: output is the same shape, upside down.
+// SI_SCREEN_OFFSET_X/Y (display_config.h) shift the image on top of the
+// letterbox centering below - applied here via `screen_x`/`screen_y`,
+// signed since a shift can push the image partly off either edge.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
-    if (ay < SI_FB_Y_OFFSET || ay >= SI_FB_Y_OFFSET + SI_ARCADE_HEIGHT) {
+    int screen_y = (int)ay - SI_SCREEN_OFFSET_Y;
+    if (screen_y < (int)SI_FB_Y_OFFSET || screen_y >= (int)(SI_FB_Y_OFFSET + SI_ARCADE_HEIGHT)) {
         for (unsigned x = 0; x < FRAME_WIDTH; ++x)
             buf[x] = COLOR_BLACK;
         return;
     }
-    unsigned oy = ay - SI_FB_Y_OFFSET;
+    unsigned oy = (unsigned)screen_y - SI_FB_Y_OFFSET;
 
     for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-        if (x < SI_FB_X_OFFSET || x >= SI_FB_X_OFFSET + SI_ARCADE_WIDTH) {
+        int screen_x = (int)x - SI_SCREEN_OFFSET_X;
+        if (screen_x < (int)SI_FB_X_OFFSET || screen_x >= (int)(SI_FB_X_OFFSET + SI_ARCADE_WIDTH)) {
             buf[x] = COLOR_BLACK;
             continue;
         }
-        unsigned ox = x - SI_FB_X_OFFSET;
+        unsigned ox = (unsigned)screen_x - SI_FB_X_OFFSET;
 #if SI_DISPLAY_ROTATION == 180
         unsigned lx = (SI_ARCADE_WIDTH - 1) - ox;
         unsigned ly = (SI_ARCADE_HEIGHT - 1) - oy;
@@ -194,15 +199,24 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
 // Both need a DIFFERENT VRAM column for every output pixel in the row, not
 // a fast sequential bit-scan of one column, since `col` now depends on our
 // column axis (x) instead of our row axis (ay) - see Emulator.md.
+// SI_SCREEN_OFFSET_X/Y (display_config.h) shift the image the same way as
+// in the 0/180 branch above.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
-    unsigned oy = ay + SI_ROT_CROP; // 0..255; no separate letterbox needed on this axis
+    int screen_ay = (int)ay - SI_SCREEN_OFFSET_Y;
+    if (screen_ay < 0 || screen_ay >= (int)FRAME_HEIGHT) {
+        for (unsigned x = 0; x < FRAME_WIDTH; ++x)
+            buf[x] = COLOR_BLACK;
+        return;
+    }
+    unsigned oy = (unsigned)screen_ay + SI_ROT_CROP; // 0..255; no separate letterbox needed on this axis
 
     for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-        if (x < SI_ROT_X_OFFSET || x >= SI_ROT_X_OFFSET + SI_ARCADE_HEIGHT) {
+        int screen_x = (int)x - SI_SCREEN_OFFSET_X;
+        if (screen_x < (int)SI_ROT_X_OFFSET || screen_x >= (int)(SI_ROT_X_OFFSET + SI_ARCADE_HEIGHT)) {
             buf[x] = COLOR_BLACK;
             continue;
         }
-        unsigned ox = x - SI_ROT_X_OFFSET;
+        unsigned ox = (unsigned)screen_x - SI_ROT_X_OFFSET;
 #if SI_DISPLAY_ROTATION == 90
         unsigned lx = oy;
         unsigned ly = (SI_ARCADE_HEIGHT - 1) - ox;

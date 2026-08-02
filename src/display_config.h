@@ -79,11 +79,25 @@
 #define SI_ENABLE_SCANLINES 1
 #endif
 #ifndef SI_SCANLINE_INTENSITY
-#define SI_SCANLINE_INTENSITY 70
+#define SI_SCANLINE_INTENSITY 10
 #endif
 
 #if SI_SCANLINE_INTENSITY > 100
 #error "SI_SCANLINE_INTENSITY must be 0-100"
+#endif
+
+// Shifts the game image within the 320x240 framebuffer, in pixels -
+// positive X moves the image right, positive Y moves it down (negative
+// values move it left/up). Applied on top of the SI_DISPLAY_ROTATION
+// letterbox centering, independent of it - useful for nudging the image
+// to compensate for a slightly misaligned bezel/mount or display
+// overscan. Large values simply push part or all of the image off-screen
+// (clipped, not an error).
+#ifndef SI_SCREEN_OFFSET_X
+#define SI_SCREEN_OFFSET_X 0
+#endif
+#ifndef SI_SCREEN_OFFSET_Y
+#define SI_SCREEN_OFFSET_Y 0
 #endif
 
 // ============================================================================

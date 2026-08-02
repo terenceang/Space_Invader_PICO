@@ -252,6 +252,23 @@ compile-time constant, so the per-channel darkening divisions fold into
 cheap multiply-shift sequences at compile time, not runtime division -
 negligible added cost per pixel.
 
+## Screen offset
+
+`SI_SCREEN_OFFSET_X` / `SI_SCREEN_OFFSET_Y` in `src/display_config.h` shift
+the whole image within the 320x240 framebuffer, in pixels - positive X
+right, positive Y down, negative left/up. Applied in both
+`render_arcade_row()` branches via `screen_x`/`screen_y` (signed, since an
+offset can push the image partly past either edge), computed as `x -
+SI_SCREEN_OFFSET_X` / `ay - SI_SCREEN_OFFSET_Y` and compared against the
+existing letterbox bounds (`SI_FB_X_OFFSET`/`SI_FB_Y_OFFSET` for rotation
+0/180, `SI_ROT_X_OFFSET`/the fixed 0..`FRAME_HEIGHT` range for 90/270) -
+so it composes with the existing centering rather than replacing it.
+Pixels the offset pushes outside the framebuffer simply clip to the
+black border; there's no bounds error for an offset that's "too large."
+Useful for nudging the image to compensate for a slightly misaligned
+bezel/mount or display overscan, independent of rotation/mirror/overlay/
+scanlines.
+
 ## Limitations (this pass: CPU core + video only)
 
 - **No sound.** Ports 3/5 (the discrete sound-effect trigger bits) are
