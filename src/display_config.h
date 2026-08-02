@@ -65,6 +65,27 @@
 #define SI_ENABLE_COLOR_OVERLAY 1
 #endif
 
+// CRT scanline effect: darkens every other transmitted row to approximate
+// the visible scan lines of a real CRT (each row is physically doubled to
+// 2 scanlines by the DVI engine - see Video.md - so this gives repeating
+// 2-bright/2-dark scanline pairs at the final 640x480 output). Purely a
+// video-conversion-stage cosmetic, independent of rotation/mirror/overlay
+// and of the CPU emulation.
+//
+// SI_SCANLINE_INTENSITY: 0-100 (0 = no darkening even if enabled, 100 =
+// darkened rows go fully black). Must be 0-100 - anything else is a
+// compile error.
+#ifndef SI_ENABLE_SCANLINES
+#define SI_ENABLE_SCANLINES 1
+#endif
+#ifndef SI_SCANLINE_INTENSITY
+#define SI_SCANLINE_INTENSITY 50
+#endif
+
+#if SI_SCANLINE_INTENSITY > 100
+#error "SI_SCANLINE_INTENSITY must be 0-100"
+#endif
+
 // ============================================================================
 // RGB565 Color Definitions (16-bit)
 // ============================================================================

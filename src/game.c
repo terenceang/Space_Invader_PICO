@@ -193,6 +193,30 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
 
 #endif
 
+#if SI_ENABLE_SCANLINES
+// Darkens the whole row (including the black border) to approximate a
+// real CRT's visible scan lines - see SI_ENABLE_SCANLINES/
+// SI_SCANLINE_INTENSITY in display_config.h. Applied as a post-process
+// after render_arcade_row(), independent of rotation/mirror/overlay,
+// since it's about the physical scanline position (our own row index y,
+// each doubled to 2 physical scanlines by the DVI engine), not game
+// content. SI_SCANLINE_INTENSITY is a compile-time constant, so the
+// divisions below fold into cheap multiply-shift sequences, not runtime
+// division.
+static void apply_scanline_darkening(uint16_t *buf) {
+    for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
+        uint16_t color = buf[x];
+        unsigned r = (color >> 11) & 0x1F;
+        unsigned g = (color >> 5) & 0x3F;
+        unsigned b = color & 0x1F;
+        r = (r * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        g = (g * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        b = (b * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        buf[x] = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+}
+#endif
+
 void game_init(void) {
     invaders_machine_init(&s_machine);
     s_mid_screen_fired = false;
@@ -217,5 +241,9 @@ const uint16_t *game_get_scanline(unsigned y, unsigned frame_count) {
     }
 
     render_arcade_row(scanline_arcade, invaders_machine_vram(&s_machine), y);
+#if SI_ENABLE_SCANLINES
+    if (y & 1)
+        apply_scanline_darkening(scanline_arcade);
+#endif
     return scanline_arcade;
 }

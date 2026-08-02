@@ -217,6 +217,22 @@ fixed screen edge, that means going back to keying it off `ly`/`col`
 (what an earlier version of this file did) rather than `ox` - the two
 are genuinely different design choices, not a bug either way.
 
+## CRT scanline effect
+
+`SI_ENABLE_SCANLINES` / `SI_SCANLINE_INTENSITY` (0-100) in
+`src/display_config.h` add an optional darkened-alternate-rows effect
+approximating a real CRT's visible scan lines. `apply_scanline_darkening()`
+in `src/game.c` runs as a post-process after `render_arcade_row()` returns,
+on our own row index `y` directly (darkening odd `y`) - independent of
+rotation/mirror/overlay/CPU emulation, since it's about the final physical
+scanline position, not game content. Each of our 240 rows is physically
+doubled to 2 scanlines by the DVI engine's `DVI_VERTICAL_REPEAT` (see
+`Video.md`), so this gives repeating 2-bright/2-dark scanline pairs at the
+final 640x480 output. `SI_SCANLINE_INTENSITY` is a compile-time constant,
+so the per-channel darkening divisions fold into cheap multiply-shift
+sequences at compile time, not runtime division - negligible cost added
+to the per-scanline budget described in "Interrupt timing" above.
+
 ## Limitations (this pass: CPU core + video only)
 
 - **No sound.** Ports 3/5 (the discrete sound-effect trigger bits) are
