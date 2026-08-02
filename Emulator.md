@@ -136,40 +136,56 @@ top-to-bottom order a hobbyist emulator running on an ordinary PC monitor
 would want. Video RAM is 7168 bytes = 224 columns x 32 bytes each (256 bits
 per column): byte `col*32 + row/8`, bit `row%8`.
 
-`render_arcade_row()` in `src/game.c` supports both physical setups via
-`SI_DISPLAY_ROTATED_CCW` in `src/display_config.h`. **Which raw VRAM column
-feeds which transmitted row (`col`), and therefore where the overlay bands
-fall, is identical in both modes.** A 90-degree screen-plane rotation only
-swaps which of the transmitted image's two axes ends up "horizontal" vs
-"vertical" for the viewer standing in front of the physically-rotated
-monitor - it doesn't change which raw column belongs at which output row.
-The only thing that needs to differ between orientations is `bitpos`: the
-direction each row's 256 bits are read in to become that row's pixels,
-left to right:
+`src/game.c` handles this with two independent, orthogonal settings in
+`src/display_config.h`:
 
-- **`SI_DISPLAY_ROTATED_CCW == 0`** - a normal, un-rotated landscape
-  monitor: `bitpos = x` (low-bit-first).
-- **`SI_DISPLAY_ROTATED_CCW == 1`** (default) - the physical display is
-  itself mounted rotated 90 degrees **counter-clockwise**, matching the
-  real cabinet's vertical monitor: `bitpos = 255 - x` (high-bit-first -
-  i.e. each row is read in the opposite direction).
+- **`SI_DISPLAY_ROTATION`**: `0`, `90`, `180`, or `270` degrees clockwise.
+  `0` outputs the source's own 256x224 shape unchanged (normal landscape
+  monitor). `180` is the same shape, upside down. `90`/`270` swap the
+  output to a 224x256 shape (matching a physically-rotated monitor).
+- **`SI_DISPLAY_FLIP_H`** / **`SI_DISPLAY_FLIP_V`**: independently mirror
+  the image horizontally/vertically, applied in the game's own
+  un-rotated coordinate space *before* rotation - `apply_mirror()` in
+  `src/game.c`.
 
-An earlier version of this function got this backwards - it flipped `col`
-between modes instead of `bitpos` (and consequently needed a second,
-separately-flipped reference just to keep the overlay bands from landing
-on the wrong rows). That produced a left-right mirrored image with the
-overlay bands in the wrong place - reported after testing on real
-hardware. If you're changing this again: `col` selects *which row of the
-game* ends up at a given output position (this shouldn't depend on screen
-orientation at all - the same game row is still the same game row); only
-`bitpos` needs to flip, because that's the axis a screen-plane rotation
-actually swaps.
+Together these cover all 16 fixed ways a rectangular display can be
+mounted. Every previous attempt at hand-deriving a single "correct"
+transform for a physically-rotated monitor got some detail wrong (see git
+log for `src/game.c` - several different failure modes: mirrored image,
+overlay bands on the wrong screen edge, bands on the right edge but wrong
+side) - freehand rotation-composition algebra proved unreliable for this
+specific transform across repeated attempts, and a verbal description of
+"which way the screen is rotated" turned out to be an unreliable input on
+its own (front-vs-back and other reference-frame ambiguities). Exposing
+all 16 combinations as two numbers to try, rather than shipping one
+hardcoded guess, means finding the right one is a `SI_DISPLAY_ROTATION` /
+`SI_DISPLAY_FLIP_H` / `SI_DISPLAY_FLIP_V` edit and a rebuild, not another
+round of code changes.
 
-Either way, the 256x224 active image is centered in the 320x240
-framebuffer (`SI_FB_X_OFFSET`/`SI_FB_Y_OFFSET`, 16px/8px black letterbox
-border) rather than stretched, to keep pixels square. The letterbox
-dimensions are identical in both modes - only the pixel *sourcing* inside
-that box changes.
+**Implementation**: `render_arcade_row()` computes, for each output pixel,
+its position `(lx, ly)` in the game's own un-rotated "landscape" space
+(`lx` 0-255 left-to-right, `ly` 0-223 top-to-bottom, `ly=0` = score/UFO
+row) - via one of four formulas selected by `SI_DISPLAY_ROTATION` at
+compile time - applies the mirror flags, then reads the pixel with
+`sample_pixel(vram, lx, ly)`, which derives `col = 223 - ly` and reads
+that VRAM column directly. All four rotation formulas were verified by
+simulation (rendering a labeled test pattern, rotating it with an
+independently-checked pure array-rotation function, and confirming the
+per-pixel formula produces an identical result) before being written into
+this file - not just "looks right" from inspection.
+
+For `SI_DISPLAY_ROTATION == 0` or `180`, the output keeps the source's
+256x224 shape, centered in the 320x240 framebuffer with a 32px/8px black
+border (`SI_FB_X_OFFSET`/`SI_FB_Y_OFFSET`). For `90`/`270`, the output is
+224x256-shaped instead (width/height swap under a 90-degree rotation) -
+this means reading a *different* VRAM column for every pixel in a row,
+not a fast sequential bit-scan of one column, since `col` now depends on
+the transmission's column axis (`x`) instead of its row axis (`ay`). The
+224-value axis gets a 48px border on our column axis
+(`SI_ROT_X_OFFSET`); the 256-value axis doesn't fit our fixed 240-row
+canvas, so instead of a border it's cropped 8px on each end
+(`SI_ROT_CROP` - a symmetric ~3%-per-side trim of the playfield's outer
+edge) to exactly fill all 240 rows.
 
 ## Color overlay
 
@@ -177,13 +193,16 @@ The real machine's video hardware only ever outputs 1-bit black/white -
 the color you remember from the cabinet came from cellophane/acetate
 strips glued over the glass: red across the top ~32 rows (score, UFO),
 green across the bottom ~40 rows (shields, player ship), and clear
-elsewhere. `render_arcade_row()` reproduces this by tinting lit pixels
-based on which row band they fall in (`SI_OVERLAY_RED_ROWS`,
-`SI_OVERLAY_GREEN_ROWS`) - purely a video-conversion-stage cosmetic; it has
-no effect on and no input from the CPU emulation. The band check uses `ay`
-directly and needs no orientation-specific handling, since (per the
-"Screen orientation" section above) `col` - and therefore which game row
-a given `ay` corresponds to - doesn't change between orientation modes.
+elsewhere. `sample_pixel()` (shared by all four rotation branches)
+reproduces this by tinting lit pixels based on which `col` band they fall
+in (`SI_OVERLAY_RED_ROWS`, `SI_OVERLAY_GREEN_ROWS`) - purely a
+video-conversion-stage cosmetic; it has no effect on and no input from the
+CPU emulation. Keying it off `col` (derived from `ly`, a property of the
+game content itself, after rotation/mirroring are already accounted for)
+rather than directly off `ay` or `x` (properties of our transmission,
+which change meaning under different `SI_DISPLAY_ROTATION` values) is
+what lets one function serve all four rotations correctly - this was the
+actual bug in every earlier attempt that didn't use this structure.
 
 ## Limitations (this pass: CPU core + video only)
 

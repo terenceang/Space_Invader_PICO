@@ -93,12 +93,15 @@ big per-frame burst is required by the DVI pipeline's hard timing budget below -
 `Emulator.md`'s "Interrupt timing" section for why.
 
 **Screen orientation**: the real cabinet's monitor is mounted vertically (portrait), not
-landscape - `SI_DISPLAY_ROTATED_CCW` in `src/display_config.h` (default 1) tells
-`render_arcade_row()` whether the physical display here is mounted the same way (rotated
-90 degrees CCW) or is a normal landscape monitor, and it samples video RAM differently for
-each case. See `Emulator.md`'s "Screen orientation" section before changing either the
-rotation math or the overlay band logic - they're coupled (get the flip direction wrong
-and the red/green overlay bands land upside down).
+landscape - `SI_DISPLAY_ROTATION` (0/90/180/270 degrees) and `SI_DISPLAY_FLIP_H`/
+`SI_DISPLAY_FLIP_V` in `src/display_config.h` tell `render_arcade_row()` how the physical
+display here is actually mounted; 16 combinations cover every fixed orientation. If the
+image comes out wrong (sideways, upside down, mirrored, or overlay bands on the wrong
+edge), that's a `display_config.h` value to try, not a rendering-code change - see
+`Emulator.md`'s "Screen orientation" section, which also explains why this is exposed as
+a couple of numbers to experiment with rather than one hardcoded transform: several
+earlier attempts at deriving "the one correct" transform by hand were each wrong in a
+different way.
 
 Inputs aren't wired to anything yet (`invaders_machine_set_in1()` exists for whatever
 GPIO/controller work comes next) - with no coin/start, the ROM just runs its own real
