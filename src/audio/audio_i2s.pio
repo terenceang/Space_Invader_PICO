@@ -1,0 +1,66 @@
+; Minimal I2S transmitter (Philips/standard I2S format) for driving an
+; external I2S DAC, e.g. PCM5102/UDA1334A/MAX98357A breakout boards.
+;
+; One bit per instruction pair (out+jmp), 16 bits per channel, 32 BCLK
+; cycles per stereo frame - matches a 32-bit autopulled FIFO word packed as
+; {channel-shifted-first : channel-shifted-second}, MSB first per channel.
+; Side-set bit 0 drives BCLK, bit 1 drives LRCLK/WS (consecutive GPIOs,
+; LRCLK = BCLK pin + 1 - see audio_i2s_program_init() below).
+;
+; Standard I2S timing: data is set up while BCLK is low and sampled by the
+; DAC on the BCLK rising edge; LRCLK changes one BCLK cycle before the new
+; channel's MSB, matching the Philips I2S spec (not left-justified).
+
+.program audio_i2s
+.side_set 2
+
+              ;        LRCLK
+              ;        | BCLK
+public entry_point:
+              ;        | |
+bitloop1:
+    out pins, 1  side 0b10
+    jmp x-- bitloop1 side 0b11
+    out pins, 1  side 0b00
+    set x, 14    side 0b01
+
+bitloop0:
+    out pins, 1  side 0b00
+    jmp x-- bitloop0 side 0b01
+    out pins, 1  side 0b10
+    set x, 14    side 0b11
+
+% c-sdk {
+// pio_gpio_init()/pio_sm_set_consecutive_pindirs() come from hardware/pio.h,
+// already pulled in by this file's own pioasm-generated header.
+
+// data_pin: DOUT, any free GPIO < 32.
+// clock_pin_base: BCLK - clock_pin_base + 1 (LRCLK/WS) must be the very
+// next GPIO number, since both are driven by this program's one side-set
+// field (see the comment above .program).
+static inline void audio_i2s_program_init(PIO pio, uint sm, uint offset,
+                                           uint data_pin, uint clock_pin_base, float clkdiv) {
+    pio_gpio_init(pio, data_pin);
+    pio_gpio_init(pio, clock_pin_base);
+    pio_gpio_init(pio, clock_pin_base + 1);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, clock_pin_base, 2, true);
+
+    pio_sm_config c = audio_i2s_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, data_pin, 1);
+    sm_config_set_sideset_pins(&c, clock_pin_base);
+    // Autopull, MSB-first (shift left), 32-bit FIFO word = 2x 16-bit
+    // channels - see the file header comment.
+    sm_config_set_out_shift(&c, false, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv(&c, clkdiv);
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Preload X - the very first instruction executed (entry_point) expects
+    // X already set up for bitloop1's 16-bit count (1 initial bit + 14
+    // jmp-taken iterations + 1 trailing bit outside the loop = 16 total),
+    // same value bitloop0's own `set x, 14` reloads for every following
+    // channel - see the .program comment for the per-channel bit count.
+    pio_sm_exec(pio, sm, pio_encode_set(pio_x, 14));
+}
+%}

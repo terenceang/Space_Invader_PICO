@@ -337,7 +337,10 @@ rotation/mirror/overlay/scanlines/scaling.
 ## Limitations (this pass: CPU core + video only)
 
 - **No sound.** Ports 3/5 (the discrete sound-effect trigger bits) are
-  read/accepted but dropped - see the Roadmap.
+  read/accepted but dropped - see the Roadmap. An I2S output driver
+  (`src/audio/audio_i2s.c`) exists and is wired up in `main.c`, but it only
+  plays a bring-up test tone so far - nothing decodes port 3/5 into real
+  arcade sound effects yet.
 - **No input.** Coin/start/joystick/fire aren't wired to anything - the ROM
   runs its attract-mode loop indefinitely. `invaders_machine_set_in1()` is
   ready for whatever GPIO/controller wiring comes next.

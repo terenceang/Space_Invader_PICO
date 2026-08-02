@@ -1,10 +1,10 @@
 # Space Invader PICO
 
-**Version: 0.2.0**
+**Version: 0.3.0**
 
 A real emulator of the 1978 Taito/Midway Space Invaders arcade PCB (Intel 8080 CPU, memory map, I/O ports and shift-register sprite hardware) for the [Waveshare RP2350-PiZero](https://www.waveshare.com/wiki/RP2350-PiZero), written in C against the Raspberry Pi Pico SDK, driving DVI video output over the board's mini-HDMI connector. This runs the *actual* arcade ROM (user-supplied - see [`roms/README.md`](roms/README.md)), not a from-scratch reimplementation of the game logic.
 
-**Status: early stage.** The DVI video pipeline and the 8080 emulator core + video output are built and working. Input (joystick/fire) and sound are not wired up yet, so the ROM currently just runs its own attract-mode loop - see [Roadmap](#roadmap) and [`Emulator.md`](Emulator.md).
+**Status: early stage.** The DVI video pipeline and the 8080 emulator core + video output are built and working. An I2S audio driver exists but only plays a bring-up test tone so far, and input (joystick/fire) isn't wired up yet, so the ROM currently just runs its own attract-mode loop - see [Roadmap](#roadmap) and [`Emulator.md`](Emulator.md).
 
 ## What's here right now
 
@@ -72,7 +72,8 @@ By default, the app shows the debug test card for 5 seconds at boot, then switch
 - [x] Intel 8080 CPU core + Space Invaders arcade machine emulation, running the real ROM
 - [x] Video RAM → framebuffer conversion (rotation, letterboxing, color overlay)
 - [ ] Joystick/fire input wired to `invaders_machine_set_in1()`
-- [ ] Sound (ports 3/5 discrete sound-effect bits, currently dropped)
+- [x] I2S audio output driver (`src/audio/`) - PIO1 + DMA, currently a bring-up test tone
+- [ ] Sound (ports 3/5 discrete sound-effect bits, currently dropped, not yet decoded into real playback)
 
 ## License
 

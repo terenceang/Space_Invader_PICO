@@ -10,9 +10,10 @@ RP2350-PiZero board, written in C against the Raspberry Pi Pico SDK, driving DVI
 output over the board's mini-HDMI connector. It runs the *actual* arcade ROM, not a
 reimplementation of the game logic - see `Emulator.md`. **Status: early stage** - the DVI
 video pipeline (`src/dvi/`, `src/dvi_display.*`) and the CPU core + video output
-(`src/emu/`, `src/game.c`) are built and working; input (joystick/fire) and sound are not
-wired up yet, so the ROM currently just runs its own attract-mode loop. See the Roadmap
-in `README.md`.
+(`src/emu/`, `src/game.c`) are built and working; an I2S audio driver
+(`src/audio/`) exists but only plays a bring-up test tone so far, not real
+game sound - and input (joystick/fire) isn't wired up yet - so the ROM
+currently just runs its own attract-mode loop. See the Roadmap in `README.md`.
 
 **The real arcade ROM is required and is not in this repo** (Taito's copyrighted work -
 see `roms/README.md`). Without it in `roms/`, the build substitutes a zero-filled
@@ -182,7 +183,9 @@ has started.
 | `src/dvi/dvi_serialiser.pio` | PIO program shifting TMDS symbols out to GPIO (trimmed from the vendored version) |
 | `src/dvi/tmds_encode_sio.c` / `.h` / `.S` | SIO hardware TMDS encoder wrapper for this board's exact 16bpp/hdouble config |
 | `src/dvi/util_queue_u32_inline.h` | Generic pico_util queue-of-pointers helper, copied so `src/dvi/` has no dependency on the vendored library |
-| `Hardware.md` | Board pinout, RP2350B-specific gotchas, bring-up history |
+| `src/audio/audio_i2s.c` / `.h` | I2S audio output driver (PIO1 + ping-pong DMA on `DMA_IRQ_1`) - currently a hardware bring-up test tone, not yet fed by the emulator (see Emulator.md's Limitations) |
+| `src/audio/audio_i2s.pio` | PIO program generating I2S BCLK/LRCLK/DATA from a 32-bit-per-stereo-frame FIFO |
+| `Hardware.md` | Board pinout (DVI + I2S audio), RP2350B-specific gotchas, bring-up history |
 | `Video.md` | Full DVI pipeline writeup, timing budget, why you can't block Core 0/1 |
 | `Emulator.md` | 8080 core + arcade machine emulation writeup, video RAM rotation, known limitations |
 | `lib/PicoDVI/` | Vendored PicoDVI library - used only by `dvi_reference_sample`, not the main app |

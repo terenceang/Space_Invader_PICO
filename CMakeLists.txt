@@ -28,7 +28,7 @@ set(PICO_BOARD waveshare_rp2350_pizero CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(Space_Invader_PICO VERSION 0.2.0 LANGUAGES C CXX ASM)
+project(Space_Invader_PICO VERSION 0.3.0 LANGUAGES C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -72,6 +72,7 @@ add_executable(Space_Invader_PICO
         src/dvi/dvi_engine.c
         src/dvi/tmds_encode_sio.c
         src/dvi/tmds_encode_sio.S
+        src/audio/audio_i2s.c
         src/emu/i8080.c
         src/emu/invaders_machine.c
         ${SI_ROM_GEN}
@@ -106,6 +107,7 @@ target_link_libraries(Space_Invader_PICO
 target_include_directories(Space_Invader_PICO PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/src/dvi
+        ${CMAKE_CURRENT_LIST_DIR}/src/audio
         ${CMAKE_CURRENT_LIST_DIR}/src/emu
 )
 
@@ -123,6 +125,7 @@ target_compile_definitions(Space_Invader_PICO PRIVATE
 )
 
 pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/dvi/dvi_serialiser.pio)
+pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/audio/audio_i2s.pio)
 
 pico_add_extra_outputs(Space_Invader_PICO)
 

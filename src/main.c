@@ -8,6 +8,7 @@
 #include "display_config.h"
 #include "dvi_display.h"
 #include "game.h"
+#include "audio_i2s.h"
 #if DEBUG_TESTCARD
 #include "testcard.h"
 #endif
@@ -39,6 +40,13 @@ int main() {
            DEBUG_TESTCARD_SECONDS);
 #endif
     game_init();
+
+    // I2S audio bring-up (test tone only - see audio_i2s.h). Registers its
+    // DMA IRQ on this core (Core 0), independent of the DVI engine's own
+    // DMA_IRQ_0 handler on Core 1.
+    printf("[DEBUG] Initializing I2S audio (GPIO18 BCLK / GPIO19 LRCLK / GPIO21 DOUT)...\n");
+    audio_i2s_init();
+    printf("[DEBUG] I2S audio initialized - test tone playing.\n");
 
     // Launch Core 1 for TMDS output stream
     printf("[DEBUG] Launching Core 1 for DVI TMDS serialiser...\n");

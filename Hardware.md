@@ -34,6 +34,45 @@ The DVI video engine utilizes the RP2350's **PIO state machines** and **DMA chan
 
 ---
 
+## I2S Audio Pin Mapping
+
+`src/audio/audio_i2s.c` drives an external I2S DAC via PIO1 (PIO0 is fully
+claimed by the DVI engine above) + a dedicated DMA IRQ line, independent of
+the DVI pipeline's own PIO/DMA/timing budget - see `audio_i2s.h` for the
+driver writeup.
+
+| Signal | GPIO | 40-pin header position | Description |
+| :--- | :--- | :--- | :--- |
+| **BCLK** | **GPIO 18** | Physical pin 12 | I2S bit clock |
+| **LRCLK / WS** | **GPIO 19** | Physical pin 35 | I2S word-select (left/right clock) |
+| **DOUT** | **GPIO 21** | Physical pin 40 | I2S serial data out (to the DAC's DIN) |
+
+> [!NOTE]
+> This board's 40-pin header is wired pin-for-pin compatible with a real
+> Raspberry Pi's GPIO layout (confirmed against the official schematic -
+> `RP2350-PiZero.pdf`), and GPIO18/19/21 are exactly where a real Pi's I2S
+> peripheral sits - so standard I2S DAC HATs (PCM5102, UDA1334A, MAX98357A,
+> HiFiBerry DAC, etc.) wire up directly with no pin remapping. BCLK/LRCLK
+> must stay on consecutive GPIO numbers (18/19) - `audio_i2s.pio`'s side-set
+> field drives both from one 2-bit value.
+
+### GPIO already claimed by this project
+
+Consulted when picking the I2S pins above, and worth checking again before
+wiring up anything else (e.g. joystick/fire input - still unwired, see
+`invaders_machine_set_in1()`):
+
+| GPIO | Used by | Source |
+| :--- | :--- | :--- |
+| 0 / 1 | UART0 TX/RX (stdio) | `PICO_DEFAULT_UART_TX/RX_PIN`, `Sample Code/boards/waveshare_rp2350_pizero.h` |
+| 2 | WS2812 status LED (board default, not currently driven by this firmware) | `PICO_DEFAULT_WS2812_PIN`, same board header |
+| 6 / 7 | I2C0 SDA/SCL (board default, not currently driven by this firmware) | `PICO_DEFAULT_I2C_SDA/SCL_PIN`, same board header |
+| 18 / 19 / 21 | I2S audio (BCLK/LRCLK/DOUT) | `src/audio/audio_i2s.c` |
+| 32-39 | DVI TMDS (3 data lanes + differential clock) | `src/dvi/dvi_engine.c` |
+| 44 / 45 / 46 | DVI DDC/CEC (wired to the mini-HDMI connector's SDA/SCL/CEC pins, unused by this firmware) | board schematic |
+
+---
+
 ## Operating Parameters & Clock Setup
 
 | Parameter | Value | Details |
@@ -58,12 +97,19 @@ The DVI video engine utilizes the RP2350's **PIO state machines** and **DMA chan
 * **Core 1**:
   * Dedicated high-speed thread executing `dvi_engine_encode_loop()` (`src/dvi/dvi_engine.c`).
   * Encodes 16-bit RGB pixels into 10-bit TMDS symbols on the fly.
-  * Handles DMA IRQ interrupts.
+  * Handles DMA IRQ interrupts (`DMA_IRQ_0`, DVI only - see below).
+
+I2S audio (`src/audio/audio_i2s.c`) doesn't fit neatly into this split: it's
+initialized on Core 0 (`main.c`, before `multicore_launch_core1()`) but then
+runs entirely off its own PIO1 state machine + ping-pong DMA once started -
+no further attention from either core's hot loop, so it doesn't compete with
+either core's own timing budget.
 
 ### Hardware Peripherals Used
 * **PIO0**: Runs the DVI TMDS serializer state machines (State Machines 0, 1, 2) for the three data lanes.
+* **PIO1**: Runs the I2S audio transmitter state machine (`src/audio/audio_i2s.pio`) - entirely separate from PIO0/DVI.
 * **PWM**: Drives the differential clock pair (GPIO 38/39) - a PWM slice generates a 50% duty-cycle complementary output, rather than the clock being bit-banged through PIO.
-* **DMA**: Transfers encoded TMDS buffers to the PIO TX FIFOs.
+* **DMA**: Transfers encoded TMDS buffers to the PIO TX FIFOs (`DMA_IRQ_0`), and separately feeds the I2S PIO via a 2-channel ping-pong chain (`DMA_IRQ_1`) - the two are on different IRQ lines so audio buffer refills can never be delayed by (or delay) the DVI engine's own IRQ handler.
 * **Bus Priority**: Core 1 DMA given elevated bus priority via `BUSCTRL_BUS_PRIORITY_PROC1_BITS`.
 * **USB CDC + UART**: Stdio telemetry is mirrored to both USB serial and UART0 (GPIO0 TX / GPIO1 RX, `115200` baud). UART requires no host handshake, so debug output and DVI/Core 1 bring-up are never gated behind USB enumeration.
 
