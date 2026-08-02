@@ -97,7 +97,7 @@
 #define SI_SCREEN_OFFSET_X 0
 #endif
 #ifndef SI_SCREEN_OFFSET_Y
-#define SI_SCREEN_OFFSET_Y 0
+#define SI_SCREEN_OFFSET_Y 10
 #endif
 
 // ============================================================================
