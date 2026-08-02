@@ -55,6 +55,16 @@
 #error "SI_DISPLAY_ROTATION must be 0, 90, 180, or 270"
 #endif
 
+// Classic arcade-cabinet color overlay (red/green tint over an otherwise
+// monochrome image - see Emulator.md's "Color overlay" section). Set to 0
+// for a plain white-on-black monochrome image instead, matching exactly
+// what the real hardware's video RAM contains bit-for-bit with no tint
+// applied - useful for checking the raw video output independent of the
+// cosmetic overlay.
+#ifndef SI_ENABLE_COLOR_OVERLAY
+#define SI_ENABLE_COLOR_OVERLAY 1
+#endif
+
 // ============================================================================
 // RGB565 Color Definitions (16-bit)
 // ============================================================================

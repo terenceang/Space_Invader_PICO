@@ -189,6 +189,14 @@ edge) to exactly fill all 240 rows.
 
 ## Color overlay
 
+`SI_ENABLE_COLOR_OVERLAY` in `src/display_config.h` (default 1) turns this
+whole feature on or off - set to 0 for a plain white-on-black monochrome
+image matching the real hardware's video RAM bit-for-bit, with no tint
+applied, useful for checking the raw video output independent of the
+cosmetic overlay. `lit_pixel_color()` is the single call site that checks
+this flag; `overlay_color_for_screen_x()` itself is compiled out entirely
+when disabled.
+
 The real machine's video hardware only ever outputs 1-bit black/white -
 the color you remember from the cabinet came from cellophane/acetate
 strips glued over the glass: red near one edge, green near the opposite

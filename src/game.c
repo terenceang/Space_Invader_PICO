@@ -90,12 +90,27 @@ static int sample_bit(const uint8_t *vram, unsigned lx, unsigned ly) {
 // SI_DISPLAY_ROTATION and the mirror flags baked in) - not on the game
 // content's own axes, since this rotation is deliberately decoupled from
 // content orientation.
+#if SI_ENABLE_COLOR_OVERLAY
 static uint16_t overlay_color_for_screen_x(unsigned ox, unsigned active_width) {
     if (ox >= active_width - SI_OVERLAY_RED_ROWS)
         return COLOR_RED;
     if (ox < SI_OVERLAY_GREEN_ROWS)
         return COLOR_GREEN;
     return COLOR_WHITE;
+}
+#endif
+
+// Color for a lit pixel: the overlay tint above, or plain white for a
+// monochrome image matching the real hardware's video RAM bit-for-bit -
+// see SI_ENABLE_COLOR_OVERLAY in display_config.h.
+static uint16_t lit_pixel_color(unsigned ox, unsigned active_width) {
+#if SI_ENABLE_COLOR_OVERLAY
+    return overlay_color_for_screen_x(ox, active_width);
+#else
+    (void)ox;
+    (void)active_width;
+    return COLOR_WHITE;
+#endif
 }
 
 // Applies the configured mirror flags in the game's own landscape space,
@@ -139,7 +154,7 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         if (!sample_bit(vram, lx, ly))
             buf[x] = COLOR_BLACK;
         else
-            buf[x] = overlay_color_for_screen_x(ox, SI_ARCADE_WIDTH);
+            buf[x] = lit_pixel_color(ox, SI_ARCADE_WIDTH);
     }
 }
 
@@ -172,7 +187,7 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         if (!sample_bit(vram, lx, ly))
             buf[x] = COLOR_BLACK;
         else
-            buf[x] = overlay_color_for_screen_x(ox, SI_ARCADE_HEIGHT);
+            buf[x] = lit_pixel_color(ox, SI_ARCADE_HEIGHT);
     }
 }
 
