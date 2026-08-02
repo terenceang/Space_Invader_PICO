@@ -24,19 +24,61 @@
 #define SI_ARCADE_WIDTH  256
 #define SI_ARCADE_HEIGHT 224
 
-// Letterbox for SI_DISPLAY_ROTATION == 0 or 180 (output is 256x224-shaped,
-// same as the source): centered, black border on all sides.
-#define SI_FB_X_OFFSET ((FRAME_WIDTH - SI_ARCADE_WIDTH) / 2)
-#define SI_FB_Y_OFFSET ((FRAME_HEIGHT - SI_ARCADE_HEIGHT) / 2)
+// Content dimensions as they map onto our transmission axes (x = column
+// axis, ay = row axis) before any scaling - rotation 90/270 swaps which
+// arcade dimension maps to which axis, same as everywhere else in this
+// file (see the render_arcade_row branches below).
+#if SI_DISPLAY_ROTATION == 0 || SI_DISPLAY_ROTATION == 180
+#define SI_CONTENT_W SI_ARCADE_WIDTH
+#define SI_CONTENT_H SI_ARCADE_HEIGHT
+#else
+#define SI_CONTENT_W SI_ARCADE_HEIGHT
+#define SI_CONTENT_H SI_ARCADE_WIDTH
+#endif
 
-// Letterbox for SI_DISPLAY_ROTATION == 90 or 270 (output is 224x256-shaped
-// - width/height swap under a 90-degree rotation). The 224-value axis gets
-// a centered border on our column axis; the 256-value axis is cropped by
-// 8px on each end instead of bordered, since it doesn't fit our fixed
-// 240-row canvas (256 > 240) - a symmetric ~3%-per-side trim of the
-// playfield's outer edge that exactly fills all 240 rows.
-#define SI_ROT_X_OFFSET ((FRAME_WIDTH - SI_ARCADE_HEIGHT) / 2)
-#define SI_ROT_CROP     ((SI_ARCADE_WIDTH - FRAME_HEIGHT) / 2)
+// Displayed size within the 320x240 framebuffer, per SI_SCALE_MODE (see
+// display_config.h) - Emulator.md's "Image scaling" section has the full
+// derivation. The FIT comparison picks whichever axis is the tighter
+// constraint via cross-multiplication, avoiding floating point or a
+// runtime division just to compare two ratios.
+#if SI_SCALE_MODE == SI_SCALE_FIT
+    #if (FRAME_WIDTH * SI_CONTENT_H) < (FRAME_HEIGHT * SI_CONTENT_W)
+        #define SI_DISPLAY_W FRAME_WIDTH
+        #define SI_DISPLAY_H (SI_CONTENT_H * FRAME_WIDTH / SI_CONTENT_W)
+    #else
+        #define SI_DISPLAY_W (SI_CONTENT_W * FRAME_HEIGHT / SI_CONTENT_H)
+        #define SI_DISPLAY_H FRAME_HEIGHT
+    #endif
+#elif SI_SCALE_MODE == SI_SCALE_X
+    #define SI_DISPLAY_W FRAME_WIDTH
+    #define SI_DISPLAY_H SI_CONTENT_H
+#elif SI_SCALE_MODE == SI_SCALE_Y
+    #define SI_DISPLAY_W SI_CONTENT_W
+    #define SI_DISPLAY_H FRAME_HEIGHT
+#else // SI_SCALE_NONE
+    #define SI_DISPLAY_W SI_CONTENT_W
+    #define SI_DISPLAY_H SI_CONTENT_H
+#endif
+
+// Where the (possibly-scaled) displayed image sits within the 320x240
+// framebuffer. The X axis is always bordered (SI_DISPLAY_W never exceeds
+// FRAME_WIDTH for any mode/rotation combination this project's fixed
+// 256x224 content and 320x240 canvas produce). The Y axis is bordered too
+// unless SI_DISPLAY_H exceeds FRAME_HEIGHT - which only happens for
+// SI_DISPLAY_ROTATION 90/270 in SI_SCALE_NONE/SI_SCALE_X (the 256-value
+// arcade axis mapped straight onto our 240-row canvas) - in which case
+// it's cropped symmetrically instead, exactly as this project always has
+// been for those combinations (see "Screen orientation" in Emulator.md).
+#define SI_ACTIVE_X_OFFSET ((FRAME_WIDTH - SI_DISPLAY_W) / 2)
+#if SI_DISPLAY_H > FRAME_HEIGHT
+#define SI_ACTIVE_Y_CROP   ((SI_DISPLAY_H - FRAME_HEIGHT) / 2)
+#define SI_ACTIVE_Y_OFFSET 0
+#define SI_ACTIVE_Y_LIMIT  FRAME_HEIGHT
+#else
+#define SI_ACTIVE_Y_CROP   0
+#define SI_ACTIVE_Y_OFFSET ((FRAME_HEIGHT - SI_DISPLAY_H) / 2)
+#define SI_ACTIVE_Y_LIMIT  (SI_ACTIVE_Y_OFFSET + SI_DISPLAY_H)
+#endif
 
 // Classic overlay-strip approximation: the real machine's CRT is pure 1-bit
 // monochrome, but the cabinet glued colored acetate strips over the glass -
@@ -161,22 +203,30 @@ static uint16_t apply_scanline(uint16_t color, unsigned lx) {
 // SI_SCREEN_OFFSET_X/Y (display_config.h) shift the image on top of the
 // letterbox centering below - applied here via `screen_x`/`screen_y`,
 // signed since a shift can push the image partly off either edge.
+// SI_SCALE_MODE (display_config.h) scales the image before that
+// centering: `display_x`/`display_y` are the position within the
+// (possibly-scaled) displayed image, `ox`/`oy` are that position mapped
+// back to the *content's* native 256x224 space via nearest-neighbor
+// sampling - which is what the rotation/mirror math below actually
+// consumes, unchanged from before scaling existed.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
     int screen_y = (int)ay - SI_SCREEN_OFFSET_Y;
-    if (screen_y < (int)SI_FB_Y_OFFSET || screen_y >= (int)(SI_FB_Y_OFFSET + SI_ARCADE_HEIGHT)) {
+    if (screen_y < (int)SI_ACTIVE_Y_OFFSET || screen_y >= (int)(SI_ACTIVE_Y_OFFSET + SI_DISPLAY_H)) {
         for (unsigned x = 0; x < FRAME_WIDTH; ++x)
             buf[x] = COLOR_BLACK;
         return;
     }
-    unsigned oy = (unsigned)screen_y - SI_FB_Y_OFFSET;
+    unsigned display_y = (unsigned)screen_y - SI_ACTIVE_Y_OFFSET;
+    unsigned oy = (display_y * SI_CONTENT_H) / SI_DISPLAY_H;
 
     for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
         int screen_x = (int)x - SI_SCREEN_OFFSET_X;
-        if (screen_x < (int)SI_FB_X_OFFSET || screen_x >= (int)(SI_FB_X_OFFSET + SI_ARCADE_WIDTH)) {
+        if (screen_x < (int)SI_ACTIVE_X_OFFSET || screen_x >= (int)(SI_ACTIVE_X_OFFSET + SI_DISPLAY_W)) {
             buf[x] = COLOR_BLACK;
             continue;
         }
-        unsigned ox = (unsigned)screen_x - SI_FB_X_OFFSET;
+        unsigned display_x = (unsigned)screen_x - SI_ACTIVE_X_OFFSET;
+        unsigned ox = (display_x * SI_CONTENT_W) / SI_DISPLAY_W;
 #if SI_DISPLAY_ROTATION == 180
         unsigned lx = (SI_ARCADE_WIDTH - 1) - ox;
         unsigned ly = (SI_ARCADE_HEIGHT - 1) - oy;
@@ -200,23 +250,29 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
 // a fast sequential bit-scan of one column, since `col` now depends on our
 // column axis (x) instead of our row axis (ay) - see Emulator.md.
 // SI_SCREEN_OFFSET_X/Y (display_config.h) shift the image the same way as
-// in the 0/180 branch above.
+// in the 0/180 branch above. SI_SCALE_MODE scales it the same way too -
+// see that branch's comment for what `display_x`/`display_y` vs `ox`/`oy`
+// mean; here the Y axis may additionally be cropped rather than bordered
+// (SI_ACTIVE_Y_CROP/SI_ACTIVE_Y_LIMIT, display_config.h/above) when
+// SI_DISPLAY_H exceeds FRAME_HEIGHT (SI_SCALE_NONE/SI_SCALE_X only).
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
     int screen_ay = (int)ay - SI_SCREEN_OFFSET_Y;
-    if (screen_ay < 0 || screen_ay >= (int)FRAME_HEIGHT) {
+    if (screen_ay < (int)SI_ACTIVE_Y_OFFSET || screen_ay >= (int)SI_ACTIVE_Y_LIMIT) {
         for (unsigned x = 0; x < FRAME_WIDTH; ++x)
             buf[x] = COLOR_BLACK;
         return;
     }
-    unsigned oy = (unsigned)screen_ay + SI_ROT_CROP; // 0..255; no separate letterbox needed on this axis
+    unsigned display_ay = (unsigned)screen_ay - SI_ACTIVE_Y_OFFSET + SI_ACTIVE_Y_CROP;
+    unsigned oy = (display_ay * SI_CONTENT_H) / SI_DISPLAY_H;
 
     for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
         int screen_x = (int)x - SI_SCREEN_OFFSET_X;
-        if (screen_x < (int)SI_ROT_X_OFFSET || screen_x >= (int)(SI_ROT_X_OFFSET + SI_ARCADE_HEIGHT)) {
+        if (screen_x < (int)SI_ACTIVE_X_OFFSET || screen_x >= (int)(SI_ACTIVE_X_OFFSET + SI_DISPLAY_W)) {
             buf[x] = COLOR_BLACK;
             continue;
         }
-        unsigned ox = (unsigned)screen_x - SI_ROT_X_OFFSET;
+        unsigned display_x = (unsigned)screen_x - SI_ACTIVE_X_OFFSET;
+        unsigned ox = (display_x * SI_CONTENT_W) / SI_DISPLAY_W;
 #if SI_DISPLAY_ROTATION == 90
         unsigned lx = oy;
         unsigned ly = (SI_ARCADE_HEIGHT - 1) - ox;

@@ -100,6 +100,29 @@
 #define SI_SCREEN_OFFSET_Y 10
 #endif
 
+// Scaling applied to the game image before centering/letterboxing within
+// the 320x240 framebuffer - see Emulator.md's "Image scaling" section.
+// SI_SCALE_NONE: 1:1, no scaling - this project's original behavior.
+// SI_SCALE_FIT:  uniform scale, as large as possible while still fitting
+//                both axes (classic letterboxed "contain" scaling).
+// SI_SCALE_X:    scale to exactly fill the framebuffer's width; height
+//                stays at its native (unscaled) size.
+// SI_SCALE_Y:    scale to exactly fill the framebuffer's height; width
+//                stays at its native (unscaled) size.
+#define SI_SCALE_NONE 0
+#define SI_SCALE_FIT  1
+#define SI_SCALE_X    2
+#define SI_SCALE_Y    3
+
+#ifndef SI_SCALE_MODE
+#define SI_SCALE_MODE SI_SCALE_NONE
+#endif
+
+#if SI_SCALE_MODE != SI_SCALE_NONE && SI_SCALE_MODE != SI_SCALE_FIT && \
+    SI_SCALE_MODE != SI_SCALE_X && SI_SCALE_MODE != SI_SCALE_Y
+#error "SI_SCALE_MODE must be SI_SCALE_NONE, SI_SCALE_FIT, SI_SCALE_X, or SI_SCALE_Y"
+#endif
+
 // ============================================================================
 // RGB565 Color Definitions (16-bit)
 // ============================================================================

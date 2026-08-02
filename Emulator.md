@@ -252,22 +252,87 @@ compile-time constant, so the per-channel darkening divisions fold into
 cheap multiply-shift sequences at compile time, not runtime division -
 negligible added cost per pixel.
 
+## Image scaling
+
+`SI_SCALE_MODE` in `src/display_config.h` scales the game image before
+centering/letterboxing it in the 320x240 framebuffer:
+
+| Mode | Behavior |
+|---|---|
+| `SI_SCALE_NONE` (default) | 1:1, no scaling - this project's original behavior. |
+| `SI_SCALE_FIT` | Uniform scale, as large as possible while still fitting both axes (letterboxed "contain" scaling) - whichever axis is the tighter constraint gets a black border, the other fills exactly. |
+| `SI_SCALE_X` | Scales to exactly fill the framebuffer's width; height stays at its native size. |
+| `SI_SCALE_Y` | Scales to exactly fill the framebuffer's height; width stays at its native size. |
+
+**How it composes with rotation**: `SI_CONTENT_W`/`SI_CONTENT_H` (in
+`src/game.c`) are the arcade's 256x224 dimensions as they map onto our
+transmission axes - already swapped for `SI_DISPLAY_ROTATION` 90/270, same
+as everywhere else in this file. `SI_DISPLAY_W`/`SI_DISPLAY_H` derive the
+actual displayed size from those plus `SI_SCALE_MODE`; the `FIT` case
+picks the binding axis via cross-multiplication
+(`FRAME_WIDTH*CONTENT_H` vs `FRAME_HEIGHT*CONTENT_W`) rather than a
+runtime division, since comparing two ratios that way needs no floating
+point and no risk of a rounding mismatch between the comparison and the
+scale actually applied.
+
+**How it composes with the existing crop/border logic**: before this
+feature, `SI_DISPLAY_ROTATION` 90/270 always *cropped* 8px off the
+256-valued axis to fit it into the 240-row canvas (see "Screen
+orientation" above), because there was no alternative to a hard 1:1
+mapping. With scaling in the picture, that's now just what
+`SI_SCALE_NONE`/`SI_SCALE_X` do specifically (their formulas leave that
+axis at its native 256, which still doesn't fit 240) - `SI_SCALE_FIT` and
+`SI_SCALE_Y` both scale that axis down to fit exactly 240 instead, so no
+crop is ever needed for them. This isn't hand-tuned per mode: `render_arcade_row()`
+picks border vs. crop generically from whether `SI_DISPLAY_H` exceeds
+`FRAME_HEIGHT` (`SI_ACTIVE_Y_CROP`/`SI_ACTIVE_Y_OFFSET`/`SI_ACTIVE_Y_LIMIT`),
+so it falls out correctly for every rotation/mode combination without a
+special case for each. Verified numerically (not just by inspection) for
+all 16 rotation/mode combinations before shipping, given this file's
+history with rotation-adjacent math.
+
+**Implementation**: within the displayed region, `display_x`/`display_y`
+(0..`SI_DISPLAY_W`-1 / 0..`SI_DISPLAY_H`-1) are mapped back to the
+content's native 256x224 space via nearest-neighbor sampling -
+`ox = display_x * SI_CONTENT_W / SI_DISPLAY_W` (and the analogous `oy`) -
+before being fed into the *same* rotation/mirror formulas that existed
+before this feature (`lx`/`ly`, `apply_mirror()`). Scaling only changes
+what feeds `ox`/`oy`; it doesn't touch the rotation math itself, matching
+this file's established practice of not touching the rotation formulas
+except when actually changing rotation behavior. `SI_SCREEN_OFFSET_X`/`Y`
+(below) apply to the *display*-space position, so nudging the image and
+scaling it compose independently of each other. All divisions here are by
+compile-time constants (`SI_DISPLAY_W`/`SI_DISPLAY_H`), so they fold into
+multiply-shift sequences same as elsewhere in this file - no runtime
+division.
+
+The overlay (`ox` passed to `lit_pixel_color()`) and scanline effect
+(`lx` passed to `apply_scanline()`) both use the *content-space* `ox`/`lx`
+values (post nearest-neighbor mapping), not `display_x`, so they scale
+together with the game graphics rather than staying a fixed pixel width
+regardless of `SI_SCALE_MODE`. One known cosmetic caveat: since the
+scanline effect alternates by content pixel, non-1:1 scale ratios can
+produce uneven-looking bands (some content pixels duplicated or skipped
+by nearest-neighbor sampling land differently against the alternating
+pattern) - acceptable for this simple approach, not addressed further.
+
 ## Screen offset
 
 `SI_SCREEN_OFFSET_X` / `SI_SCREEN_OFFSET_Y` in `src/display_config.h` shift
-the whole image within the 320x240 framebuffer, in pixels - positive X
-right, positive Y down, negative left/up. Applied in both
-`render_arcade_row()` branches via `screen_x`/`screen_y` (signed, since an
-offset can push the image partly past either edge), computed as `x -
-SI_SCREEN_OFFSET_X` / `ay - SI_SCREEN_OFFSET_Y` and compared against the
-existing letterbox bounds (`SI_FB_X_OFFSET`/`SI_FB_Y_OFFSET` for rotation
-0/180, `SI_ROT_X_OFFSET`/the fixed 0..`FRAME_HEIGHT` range for 90/270) -
-so it composes with the existing centering rather than replacing it.
-Pixels the offset pushes outside the framebuffer simply clip to the
-black border; there's no bounds error for an offset that's "too large."
-Useful for nudging the image to compensate for a slightly misaligned
-bezel/mount or display overscan, independent of rotation/mirror/overlay/
-scanlines.
+the whole (possibly-scaled) displayed image within the 320x240
+framebuffer, in pixels - positive X right, positive Y down, negative
+left/up. Applied in both `render_arcade_row()` branches via
+`screen_x`/`screen_y` (signed, since an offset can push the image partly
+past either edge), computed as `x - SI_SCREEN_OFFSET_X` /
+`ay - SI_SCREEN_OFFSET_Y` and compared against the active-region bounds
+(`SI_ACTIVE_X_OFFSET`/`SI_DISPLAY_W` and `SI_ACTIVE_Y_OFFSET`/
+`SI_ACTIVE_Y_LIMIT` - see "Image scaling" above) - so it composes with
+both the rotation-mode centering and any `SI_SCALE_MODE` scaling rather
+than replacing either. Pixels the offset pushes outside the framebuffer
+simply clip to the black border; there's no bounds error for an offset
+that's "too large." Useful for nudging the image to compensate for a
+slightly misaligned bezel/mount or display overscan, independent of
+rotation/mirror/overlay/scanlines/scaling.
 
 ## Limitations (this pass: CPU core + video only)
 
