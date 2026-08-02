@@ -26,15 +26,16 @@
 //
 // SI_DISPLAY_ROTATION: rotation applied to the image, in degrees
 // clockwise. Must be 0, 90, 180, or 270 - anything else is a compile
-// error. The real Space Invaders cabinet's monitor is mounted vertically;
-// 270 (rotate 90 degrees counter-clockwise) is this project's default
-// starting guess for that setup, not a verified-correct value for any
-// particular physical mount - if the image comes out sideways, upside
-// down, or mirrored, that's what SI_DISPLAY_ROTATION and the two flip
-// flags below are for: try the other rotation values and/or flips (16
-// combinations total) rather than editing the rendering code itself.
+// error. If the image comes out sideways, upside down, or mirrored on a
+// different physical mount, that's what SI_DISPLAY_ROTATION and the two
+// flip flags below are for: try the other rotation values and/or flips
+// (16 combinations total) rather than editing the rendering code itself.
+//
+// 0 + SI_DISPLAY_FLIP_H (below) is the verified-correct setting for this
+// board's actual mounted display - not the default starting guess this
+// project shipped with initially.
 #ifndef SI_DISPLAY_ROTATION
-#define SI_DISPLAY_ROTATION 270
+#define SI_DISPLAY_ROTATION 0
 #endif
 
 // Mirror the image horizontally/vertically, applied independently of
@@ -43,7 +44,7 @@
 // used to fold the optical path, or a display driven through a connector
 // that inverts a scan direction.
 #ifndef SI_DISPLAY_FLIP_H
-#define SI_DISPLAY_FLIP_H 0
+#define SI_DISPLAY_FLIP_H 1
 #endif
 #ifndef SI_DISPLAY_FLIP_V
 #define SI_DISPLAY_FLIP_V 0
