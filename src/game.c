@@ -66,21 +66,34 @@ static bool s_mid_screen_fired;
 
 // Video RAM is organized as 224 vertical strips of 32 bytes (256 bits)
 // each - byte (col*32 + row/8), bit (row%8) - because the CPU draws into
-// it in the CRT's native (physically rotated) scan order. `col` identifies
-// which row of the *game* (score/UFO near col 223, shields/ship near col
-// 0) a pixel belongs to - this is what the overlay bands are keyed to.
-// (lx, ly) here are coordinates in the game's own un-rotated,
-// un-mirrored "landscape" space: lx 0..255 (left-right), ly 0..223
-// (top-to-bottom, 0 = score/UFO row).
-static uint16_t sample_pixel(const uint8_t *vram, unsigned lx, unsigned ly) {
+// it in the CRT's native (physically rotated) scan order. (lx, ly) here
+// are coordinates in the game's own un-rotated, un-mirrored "landscape"
+// space: lx 0..255 (left-right), ly 0..223 (top-to-bottom, 0 = score/UFO
+// row) - this is the rotation-adjusted content sampling and is untouched
+// by the overlay rotation below.
+static int sample_bit(const uint8_t *vram, unsigned lx, unsigned ly) {
     unsigned col = (SI_ARCADE_HEIGHT - 1) - ly;
     const uint8_t *column = vram + (size_t)col * 32;
-    int on = (column[lx >> 3] >> (lx & 7)) & 1;
-    if (!on)
-        return COLOR_BLACK;
-    if (col >= SI_ARCADE_HEIGHT - SI_OVERLAY_RED_ROWS)
+    return (column[lx >> 3] >> (lx & 7)) & 1;
+}
+
+// Color overlay bands, rotated 90 degrees CLOCKWISE relative to the
+// content's own top/bottom axis, independent of SI_DISPLAY_ROTATION - per
+// explicit request, not to match real cabinet hardware (which has the
+// bands running perpendicular to the game's own vertical axis, i.e. what
+// this would be without this extra rotation). Rotating a "top" edge 90
+// degrees clockwise moves it to the "right" edge, and a "bottom" edge
+// moves to the "left" edge - so red (previously the top band) is now the
+// right-edge band, green (previously the bottom band) is now the
+// left-edge band. Keyed on `ox`, the screen-space column position within
+// the active playfield (independent of `lx`/`ly`, which already have
+// SI_DISPLAY_ROTATION and the mirror flags baked in) - not on the game
+// content's own axes, since this rotation is deliberately decoupled from
+// content orientation.
+static uint16_t overlay_color_for_screen_x(unsigned ox, unsigned active_width) {
+    if (ox >= active_width - SI_OVERLAY_RED_ROWS)
         return COLOR_RED;
-    if (col < SI_OVERLAY_GREEN_ROWS)
+    if (ox < SI_OVERLAY_GREEN_ROWS)
         return COLOR_GREEN;
     return COLOR_WHITE;
 }
@@ -123,7 +136,10 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         unsigned ly = oy;
 #endif
         apply_mirror(&lx, &ly);
-        buf[x] = sample_pixel(vram, lx, ly);
+        if (!sample_bit(vram, lx, ly))
+            buf[x] = COLOR_BLACK;
+        else
+            buf[x] = overlay_color_for_screen_x(ox, SI_ARCADE_WIDTH);
     }
 }
 
@@ -153,7 +169,10 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         unsigned ly = ox;
 #endif
         apply_mirror(&lx, &ly);
-        buf[x] = sample_pixel(vram, lx, ly);
+        if (!sample_bit(vram, lx, ly))
+            buf[x] = COLOR_BLACK;
+        else
+            buf[x] = overlay_color_for_screen_x(ox, SI_ARCADE_HEIGHT);
     }
 }
 

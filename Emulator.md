@@ -191,18 +191,23 @@ edge) to exactly fill all 240 rows.
 
 The real machine's video hardware only ever outputs 1-bit black/white -
 the color you remember from the cabinet came from cellophane/acetate
-strips glued over the glass: red across the top ~32 rows (score, UFO),
-green across the bottom ~40 rows (shields, player ship), and clear
-elsewhere. `sample_pixel()` (shared by all four rotation branches)
-reproduces this by tinting lit pixels based on which `col` band they fall
-in (`SI_OVERLAY_RED_ROWS`, `SI_OVERLAY_GREEN_ROWS`) - purely a
-video-conversion-stage cosmetic; it has no effect on and no input from the
-CPU emulation. Keying it off `col` (derived from `ly`, a property of the
-game content itself, after rotation/mirroring are already accounted for)
-rather than directly off `ay` or `x` (properties of our transmission,
-which change meaning under different `SI_DISPLAY_ROTATION` values) is
-what lets one function serve all four rotations correctly - this was the
-actual bug in every earlier attempt that didn't use this structure.
+strips glued over the glass: red near one edge, green near the opposite
+edge, clear in between. `sample_bit()` decides which pixels are lit
+(purely from VRAM, via `lx`/`ly` - the rotation/mirror-adjusted content
+coordinates); `overlay_color_for_screen_x()` decides what color a lit
+pixel gets, and it's **deliberately decoupled from content rotation**: it
+keys off `ox`, the raw screen-space column position within the active
+playfield, not off anything derived from `lx`/`ly`. On real hardware the
+overlay bands run perpendicular to the game's own vertical axis (red at
+the score/UFO end, green at the shields/ship end) - this project's bands
+are instead rotated 90 degrees clockwise from that **by explicit request,
+independent of whatever `SI_DISPLAY_ROTATION` is set to**: red is the
+right-edge band, green is the left-edge band, in screen terms, regardless
+of how the game content itself is rotated/mirrored. If a future change
+wants the overlay to track the game's score/ship axis again instead of a
+fixed screen edge, that means going back to keying it off `ly`/`col`
+(what an earlier version of this file did) rather than `ox` - the two
+are genuinely different design choices, not a bug either way.
 
 ## Limitations (this pass: CPU core + video only)
 
