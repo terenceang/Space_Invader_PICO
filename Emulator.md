@@ -221,17 +221,37 @@ are genuinely different design choices, not a bug either way.
 
 `SI_ENABLE_SCANLINES` / `SI_SCANLINE_INTENSITY` (0-100) in
 `src/display_config.h` add an optional darkened-alternate-rows effect
-approximating a real CRT's visible scan lines. `apply_scanline_darkening()`
-in `src/game.c` runs as a post-process after `render_arcade_row()` returns,
-on our own row index `y` directly (darkening odd `y`) - independent of
-rotation/mirror/overlay/CPU emulation, since it's about the final physical
-scanline position, not game content. Each of our 240 rows is physically
-doubled to 2 scanlines by the DVI engine's `DVI_VERTICAL_REPEAT` (see
-`Video.md`), so this gives repeating 2-bright/2-dark scanline pairs at the
-final 640x480 output. `SI_SCANLINE_INTENSITY` is a compile-time constant,
-so the per-channel darkening divisions fold into cheap multiply-shift
-sequences at compile time, not runtime division - negligible cost added
-to the per-scanline budget described in "Interrupt timing" above.
+approximating a real CRT's visible scan lines. `apply_scanline()` darkens
+every other line **of the game's own content**, keyed on `ly` (the
+post-mirror game-space vertical coordinate - the same one `sample_bit()`
+uses to pick a VRAM column) rather than on `y`/`ay` (our transmission row
+index) - so the darkened lines always run horizontally relative to the
+game graphics, regardless of `SI_DISPLAY_ROTATION`.
+
+This distinction matters concretely under a 90/270 rotation: `ly` is
+constant across an entire transmitted row for `SI_DISPLAY_ROTATION` 0/180
+(so darkening by `ly` parity there looks the same as darkening by `y`
+parity would), but `ly` *varies within a row* for 90/270 (it's derived
+from `ox`, our column axis, not `ay`, our row axis - see the "Screen
+orientation" section above). An earlier version of this effect darkened
+whole transmitted rows as a post-process keyed on `y` - correct-looking
+for the 0/180 case, but would have produced *vertical* stripes relative
+to the game once rotation was in a 90/270 mode, exactly the "which axis
+is actually horizontal after rotation" mistake this file's rotation
+section already covers at length. Applying `apply_scanline()` per-pixel,
+inside `render_arcade_row()`, on the already rotation/mirror-adjusted
+`ly` avoids that: it's called from both rotation branches at the point
+each pixel's final color is decided.
+
+Each of our 240 game-space rows is physically doubled to 2 scanlines by
+the DVI engine's `DVI_VERTICAL_REPEAT` (see `Video.md`) - for
+`SI_DISPLAY_ROTATION` 0/180 this gives repeating 2-bright/2-dark scanline
+pairs straightforwardly; for 90/270 the doubling still happens on the
+transmission's row axis, so the visual scanline pitch there depends on how
+the rotation maps game rows onto transmitted pixels. `SI_SCANLINE_INTENSITY`
+is a compile-time constant, so the per-channel darkening divisions fold
+into cheap multiply-shift sequences at compile time, not runtime division -
+negligible added cost per pixel.
 
 ## Limitations (this pass: CPU core + video only)
 

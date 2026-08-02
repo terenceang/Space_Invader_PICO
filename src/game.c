@@ -124,6 +124,36 @@ static void apply_mirror(unsigned *lx, unsigned *ly) {
 #endif
 }
 
+// CRT scanline effect: darkens every other row *of the game's own
+// content* - keyed on `ly` (post-mirror game-space vertical position),
+// not on our transmission row index - so the darkened lines always run
+// horizontally relative to the game graphics, regardless of
+// SI_DISPLAY_ROTATION. This matters because under a 90/270 rotation, `ly`
+// varies *within* a transmitted row (not per-row) - see the SI_DISPLAY_ROTATION
+// == 90/270 branch below, where `ly` depends on `ox`, our column axis, not
+// `ay`, our row axis. Applying this per-pixel on `ly` rather than as a
+// per-row post-process on `y` is what makes it correctly track "game rows"
+// instead of "transmitted rows" in every rotation mode.
+// SI_SCANLINE_INTENSITY is a compile-time constant, so the divisions below
+// fold into cheap multiply-shift sequences, not runtime division.
+static uint16_t apply_scanline(uint16_t color, unsigned ly) {
+#if SI_ENABLE_SCANLINES
+    if (ly & 1) {
+        unsigned r = (color >> 11) & 0x1F;
+        unsigned g = (color >> 5) & 0x3F;
+        unsigned b = color & 0x1F;
+        r = (r * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        g = (g * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        b = (b * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        return (uint16_t)((r << 11) | (g << 5) | b);
+    }
+    return color;
+#else
+    (void)ly;
+    return color;
+#endif
+}
+
 #if SI_DISPLAY_ROTATION == 0 || SI_DISPLAY_ROTATION == 180
 
 // SI_DISPLAY_ROTATION == 0: normal, un-rotated landscape monitor - output
@@ -151,10 +181,8 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         unsigned ly = oy;
 #endif
         apply_mirror(&lx, &ly);
-        if (!sample_bit(vram, lx, ly))
-            buf[x] = COLOR_BLACK;
-        else
-            buf[x] = lit_pixel_color(ox, SI_ARCADE_WIDTH);
+        uint16_t color = sample_bit(vram, lx, ly) ? lit_pixel_color(ox, SI_ARCADE_WIDTH) : COLOR_BLACK;
+        buf[x] = apply_scanline(color, ly);
     }
 }
 
@@ -184,37 +212,11 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         unsigned ly = ox;
 #endif
         apply_mirror(&lx, &ly);
-        if (!sample_bit(vram, lx, ly))
-            buf[x] = COLOR_BLACK;
-        else
-            buf[x] = lit_pixel_color(ox, SI_ARCADE_HEIGHT);
+        uint16_t color = sample_bit(vram, lx, ly) ? lit_pixel_color(ox, SI_ARCADE_HEIGHT) : COLOR_BLACK;
+        buf[x] = apply_scanline(color, ly);
     }
 }
 
-#endif
-
-#if SI_ENABLE_SCANLINES
-// Darkens the whole row (including the black border) to approximate a
-// real CRT's visible scan lines - see SI_ENABLE_SCANLINES/
-// SI_SCANLINE_INTENSITY in display_config.h. Applied as a post-process
-// after render_arcade_row(), independent of rotation/mirror/overlay,
-// since it's about the physical scanline position (our own row index y,
-// each doubled to 2 physical scanlines by the DVI engine), not game
-// content. SI_SCANLINE_INTENSITY is a compile-time constant, so the
-// divisions below fold into cheap multiply-shift sequences, not runtime
-// division.
-static void apply_scanline_darkening(uint16_t *buf) {
-    for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-        uint16_t color = buf[x];
-        unsigned r = (color >> 11) & 0x1F;
-        unsigned g = (color >> 5) & 0x3F;
-        unsigned b = color & 0x1F;
-        r = (r * (100 - SI_SCANLINE_INTENSITY)) / 100;
-        g = (g * (100 - SI_SCANLINE_INTENSITY)) / 100;
-        b = (b * (100 - SI_SCANLINE_INTENSITY)) / 100;
-        buf[x] = (uint16_t)((r << 11) | (g << 5) | b);
-    }
-}
 #endif
 
 void game_init(void) {
@@ -241,9 +243,5 @@ const uint16_t *game_get_scanline(unsigned y, unsigned frame_count) {
     }
 
     render_arcade_row(scanline_arcade, invaders_machine_vram(&s_machine), y);
-#if SI_ENABLE_SCANLINES
-    if (y & 1)
-        apply_scanline_darkening(scanline_arcade);
-#endif
     return scanline_arcade;
 }
