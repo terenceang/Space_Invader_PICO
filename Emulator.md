@@ -220,37 +220,36 @@ are genuinely different design choices, not a bug either way.
 ## CRT scanline effect
 
 `SI_ENABLE_SCANLINES` / `SI_SCANLINE_INTENSITY` (0-100) in
-`src/display_config.h` add an optional darkened-alternate-rows effect
+`src/display_config.h` add an optional darkened-alternate-pixels effect
 approximating a real CRT's visible scan lines. `apply_scanline()` darkens
-every other line **of the game's own content**, keyed on `ly` (the
-post-mirror game-space vertical coordinate - the same one `sample_bit()`
-uses to pick a VRAM column) rather than on `y`/`ay` (our transmission row
-index) - so the darkened lines always run horizontally relative to the
-game graphics, regardless of `SI_DISPLAY_ROTATION`.
-
-This distinction matters concretely under a 90/270 rotation: `ly` is
-constant across an entire transmitted row for `SI_DISPLAY_ROTATION` 0/180
-(so darkening by `ly` parity there looks the same as darkening by `y`
-parity would), but `ly` *varies within a row* for 90/270 (it's derived
-from `ox`, our column axis, not `ay`, our row axis - see the "Screen
-orientation" section above). An earlier version of this effect darkened
-whole transmitted rows as a post-process keyed on `y` - correct-looking
-for the 0/180 case, but would have produced *vertical* stripes relative
-to the game once rotation was in a 90/270 mode, exactly the "which axis
-is actually horizontal after rotation" mistake this file's rotation
-section already covers at length. Applying `apply_scanline()` per-pixel,
-inside `render_arcade_row()`, on the already rotation/mirror-adjusted
-`ly` avoids that: it's called from both rotation branches at the point
+alternating pixels along `lx` (the post-mirror game-space horizontal
+coordinate), applied per-pixel inside `render_arcade_row()` at the point
 each pixel's final color is decided.
 
-Each of our 240 game-space rows is physically doubled to 2 scanlines by
-the DVI engine's `DVI_VERTICAL_REPEAT` (see `Video.md`) - for
-`SI_DISPLAY_ROTATION` 0/180 this gives repeating 2-bright/2-dark scanline
-pairs straightforwardly; for 90/270 the doubling still happens on the
-transmission's row axis, so the visual scanline pitch there depends on how
-the rotation maps game rows onto transmitted pixels. `SI_SCANLINE_INTENSITY`
-is a compile-time constant, so the per-channel darkening divisions fold
-into cheap multiply-shift sequences at compile time, not runtime division -
+**This axis was picked empirically, not derived from theory.** Two earlier
+versions of this effect existed first: one keyed on `y`/`ay` (our
+transmission row index, darkening whole rows as a post-process), then one
+keyed on `ly` (the game-space vertical coordinate, reasoned to be
+row-invariant and therefore equivalent to the first version for
+`SI_DISPLAY_ROTATION == 0`). Both were expected to produce horizontal
+bands for the confirmed `SI_DISPLAY_ROTATION 0` / `SI_DISPLAY_FLIP_H 1`
+setup - that reasoning about `ly` being row-invariant was correct as far
+as it went, but on real hardware both versions actually produced
+*vertical* bands, not horizontal. `lx` was tried next, on direct request,
+and confirmed correct. This project's rotation-related bugs have
+repeatedly turned out to be spots where a plausible-sounding derivation
+about "which axis maps to what after rotation" didn't hold up against
+what the actual hardware showed (see the "Screen orientation" section's
+own history of this) - this is another instance of that, not a case where
+the earlier reasoning was internally inconsistent.
+
+Each row is physically doubled to 2 scanlines by the DVI engine's
+`DVI_VERTICAL_REPEAT` (see `Video.md`), so the overall darkening still
+lands as a repeating pattern at the final 640x480 output, with the pitch
+and orientation depending on `SI_DISPLAY_ROTATION` as observed rather than
+as separately derived per rotation mode. `SI_SCANLINE_INTENSITY` is a
+compile-time constant, so the per-channel darkening divisions fold into
+cheap multiply-shift sequences at compile time, not runtime division -
 negligible added cost per pixel.
 
 ## Limitations (this pass: CPU core + video only)

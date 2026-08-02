@@ -124,21 +124,20 @@ static void apply_mirror(unsigned *lx, unsigned *ly) {
 #endif
 }
 
-// CRT scanline effect: darkens every other row *of the game's own
-// content* - keyed on `ly` (post-mirror game-space vertical position),
-// not on our transmission row index - so the darkened lines always run
-// horizontally relative to the game graphics, regardless of
-// SI_DISPLAY_ROTATION. This matters because under a 90/270 rotation, `ly`
-// varies *within* a transmitted row (not per-row) - see the SI_DISPLAY_ROTATION
-// == 90/270 branch below, where `ly` depends on `ox`, our column axis, not
-// `ay`, our row axis. Applying this per-pixel on `ly` rather than as a
-// per-row post-process on `y` is what makes it correctly track "game rows"
-// instead of "transmitted rows" in every rotation mode.
-// SI_SCANLINE_INTENSITY is a compile-time constant, so the divisions below
-// fold into cheap multiply-shift sequences, not runtime division.
-static uint16_t apply_scanline(uint16_t color, unsigned ly) {
+// CRT scanline effect: darkens alternating pixels along `lx` (post-mirror
+// game-space horizontal position) rather than our transmission row index
+// or `ly` - see Emulator.md's "CRT scanline effect" section for why this
+// specific axis was picked (empirically, after `ly` produced vertical
+// rather than horizontal bands on real hardware for the confirmed
+// SI_DISPLAY_ROTATION/flip settings - the reasoning that `ly` should have
+// been row-invariant for SI_DISPLAY_ROTATION 0 did not match what was
+// actually observed, so this was changed based on that observation rather
+// than further theory). SI_SCANLINE_INTENSITY is a compile-time constant,
+// so the divisions below fold into cheap multiply-shift sequences, not
+// runtime division.
+static uint16_t apply_scanline(uint16_t color, unsigned lx) {
 #if SI_ENABLE_SCANLINES
-    if (ly & 1) {
+    if (lx & 1) {
         unsigned r = (color >> 11) & 0x1F;
         unsigned g = (color >> 5) & 0x3F;
         unsigned b = color & 0x1F;
@@ -149,7 +148,7 @@ static uint16_t apply_scanline(uint16_t color, unsigned ly) {
     }
     return color;
 #else
-    (void)ly;
+    (void)lx;
     return color;
 #endif
 }
@@ -182,7 +181,7 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
 #endif
         apply_mirror(&lx, &ly);
         uint16_t color = sample_bit(vram, lx, ly) ? lit_pixel_color(ox, SI_ARCADE_WIDTH) : COLOR_BLACK;
-        buf[x] = apply_scanline(color, ly);
+        buf[x] = apply_scanline(color, lx);
     }
 }
 
@@ -213,7 +212,7 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
 #endif
         apply_mirror(&lx, &ly);
         uint16_t color = sample_bit(vram, lx, ly) ? lit_pixel_color(ox, SI_ARCADE_HEIGHT) : COLOR_BLACK;
-        buf[x] = apply_scanline(color, ly);
+        buf[x] = apply_scanline(color, lx);
     }
 }
 
