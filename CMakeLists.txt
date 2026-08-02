@@ -28,7 +28,7 @@ set(PICO_BOARD waveshare_rp2350_pizero CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(Space_Invader_PICO VERSION 0.1.0 LANGUAGES C CXX ASM)
+project(Space_Invader_PICO VERSION 0.2.0 LANGUAGES C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -37,6 +37,31 @@ pico_sdk_init()
 # target below - the main app uses its own slim src/dvi/ engine instead, see
 # Video.md)
 add_subdirectory(lib/PicoDVI/software/libdvi)
+
+# ----------------------------------------------------------------------------
+# Space Invaders arcade ROM: embedded into the flash image at build time from
+# files the user supplies locally in roms/ (not vendored - it's Taito's
+# copyrighted work, see roms/README.md). If missing, a zero-filled
+# placeholder is generated instead so the rest of the project still builds -
+# see cmake/generate_rom.cmake.
+#
+# This runs as an always-execute custom target (not a mtime-tracked
+# add_custom_command OUTPUT) rather than trying to depend on the 4 ROM
+# files directly: MAME romset zips/dumps commonly preserve decades-old
+# timestamps, which would make Ninja consider a previously-generated
+# (possibly placeholder) rom_data.c already "up to date" and skip
+# regenerating it even after the real files show up in roms/. Re-running
+# this small script every build is cheap and avoids that trap entirely.
+set(SI_ROM_DIR ${CMAKE_CURRENT_LIST_DIR}/roms)
+set(SI_ROM_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated/rom_data.c)
+add_custom_target(si_generate_rom ALL
+        COMMAND ${CMAKE_COMMAND}
+                -DSI_ROM_DIR=${SI_ROM_DIR}
+                -DSI_ROM_OUT=${SI_ROM_GEN}
+                -P ${CMAKE_CURRENT_LIST_DIR}/cmake/generate_rom.cmake
+        BYPRODUCTS ${SI_ROM_GEN}
+        COMMENT "Embedding Space Invaders arcade ROM (roms/) into flash image"
+)
 
 # Add executable. Default name is the project name, version 0.1
 add_executable(Space_Invader_PICO
@@ -47,7 +72,11 @@ add_executable(Space_Invader_PICO
         src/dvi/dvi_engine.c
         src/dvi/tmds_encode_sio.c
         src/dvi/tmds_encode_sio.S
+        src/emu/i8080.c
+        src/emu/invaders_machine.c
+        ${SI_ROM_GEN}
 )
+add_dependencies(Space_Invader_PICO si_generate_rom)
 
 pico_set_program_name(Space_Invader_PICO "Space_Invader_PICO")
 pico_set_program_version(Space_Invader_PICO "${PROJECT_VERSION}")
@@ -77,6 +106,7 @@ target_link_libraries(Space_Invader_PICO
 target_include_directories(Space_Invader_PICO PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/src/dvi
+        ${CMAKE_CURRENT_LIST_DIR}/src/emu
 )
 
 # Required for PIO to address GPIO32-39 (RP2350B extends PIO's addressable

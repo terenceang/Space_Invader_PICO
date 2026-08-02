@@ -18,6 +18,18 @@
 #endif
 #define DEBUG_TESTCARD_SECONDS 5
 
+// Set to 1 if the physical display is mounted rotated 90 degrees
+// counter-clockwise from normal landscape - matching the real Space
+// Invaders cabinet's vertical monitor orientation (see Emulator.md's
+// "Screen orientation" section). Set to 0 for a normal, un-rotated
+// landscape monitor instead. This only affects how src/game.c samples
+// video RAM into the framebuffer - it has no effect on the DVI engine's
+// own fixed 640x480p60 output timing (src/dvi/), which is unaffected
+// either way.
+#ifndef SI_DISPLAY_ROTATED_CCW
+#define SI_DISPLAY_ROTATED_CCW 1
+#endif
+
 // ============================================================================
 // RGB565 Color Definitions (16-bit)
 // ============================================================================

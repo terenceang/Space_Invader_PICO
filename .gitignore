@@ -1,6 +1,12 @@
 build
 !.vscode/*
 
+# Space Invaders arcade ROM dump (Taito/Midway, 1978) - copyrighted, not
+# redistributed in this repo. Supply your own legally-obtained dump - see
+# roms/README.md. CMake embeds it into the firmware image at build time.
+roms/*
+!roms/README.md
+
 # Waveshare's full demo package (DVI/USB/MicroSD samples, KiCad/gerber
 # files, prebuilt .uf2s). Only Sample Code/01-DVI/apps/hello_dvi is ever
 # used by this project (the dvi_reference_sample CMake target, for local

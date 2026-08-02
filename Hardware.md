@@ -94,7 +94,7 @@ Connecting a serial terminal (such as VS Code Serial Monitor or TeraTerm) over e
 
 ```text
 ==================================================
-  Space Invader PICO  v0.1.0
+  Space Invader PICO  v0.2.0
 ==================================================
 [DEBUG] Microcontroller: RP2350B (Cortex-M33)
 [DEBUG] Core Voltage   : 1.25V
@@ -117,7 +117,7 @@ Connecting a serial terminal (such as VS Code Serial Monitor or TeraTerm) over e
 [STATUS] Rendering DVI 640x480 @ 60Hz...
 ```
 
-The version string (`v0.1.0`) comes from `PROJECT_VERSION` in `CMakeLists.txt`'s `project()` call - `SPACE_INVADER_PICO_VERSION` is passed through as a compile definition so `main.c` doesn't need a second, separately-maintained copy of it.
+The version string (`v0.2.0`) comes from `PROJECT_VERSION` in `CMakeLists.txt`'s `project()` call - `SPACE_INVADER_PICO_VERSION` is passed through as a compile definition so `main.c` doesn't need a second, separately-maintained copy of it.
 
 > [!NOTE]
 > No output is printed once rendering starts. An earlier per-second
