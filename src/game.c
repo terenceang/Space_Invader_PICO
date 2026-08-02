@@ -16,28 +16,15 @@
 // See Emulator.md for the full writeup.
 // ============================================================================
 
-// The real cabinet's CRT runs 256x224 (see Emulator.md's "Screen
-// orientation" section for why it isn't 224x256 despite the tube being
+// The real cabinet's CRT runs 256x224 (see Emulator.md's "Video RAM
+// rotation" section for why it isn't 224x256 despite the tube being
 // physically rotated 90 degrees in the cabinet). Our framebuffer is
-// 320x240, so the arcade image is letterboxed rather than stretched, to
-// keep pixels square/undistorted.
+// 320x240, so the arcade image is letterboxed - centered with a black
+// border - rather than stretched, to keep pixels square/undistorted.
 #define SI_ARCADE_WIDTH  256
 #define SI_ARCADE_HEIGHT 224
-
-// Landscape-mode (SI_DISPLAY_ROTATED_CCW == 0) letterbox: centered, black
-// border on all sides.
 #define SI_FB_X_OFFSET ((FRAME_WIDTH - SI_ARCADE_WIDTH) / 2)
 #define SI_FB_Y_OFFSET ((FRAME_HEIGHT - SI_ARCADE_HEIGHT) / 2)
-
-// Rotated-mode (SI_DISPLAY_ROTATED_CCW == 1) letterbox. This mode needs a
-// genuinely different (transposed) layout, not just flipped landscape
-// indices - see Emulator.md's "Screen orientation" section for why. The
-// game's 256-wide raw bit-position axis is cropped by 8px on each end to
-// exactly fit our fixed 240-row canvas (256 doesn't fit in 240), so it
-// needs no further letterbox border of its own; the 224-value column axis
-// gets a centered border on our column axis instead.
-#define SI_ROT_CROP     ((SI_ARCADE_WIDTH - FRAME_HEIGHT) / 2)  // 8
-#define SI_ROT_X_OFFSET ((FRAME_WIDTH - SI_ARCADE_HEIGHT) / 2)  // 48
 
 // Classic overlay-strip approximation: the real machine's CRT is pure 1-bit
 // monochrome, but the cabinet glued colored acetate strips over the glass -
@@ -66,71 +53,40 @@ static uint16_t scanline_black[FRAME_WIDTH];
 static uint16_t scanline_arcade[FRAME_WIDTH];
 static bool s_mid_screen_fired;
 
-// Video RAM is organized as 224 vertical strips of 32 bytes (256 bits)
-// each - byte (col*32 + row/8), bit (row%8) - because the CPU draws into
-// it in the CRT's native (physically rotated) scan order. `col` identifies
-// which row of the *game* (score/UFO near col 223, shields/ship near col
-// 0) a pixel belongs to - this is what the overlay bands are keyed to,
-// regardless of orientation mode.
-static uint16_t overlay_color_for_col(unsigned col) {
-    if (col >= SI_ARCADE_HEIGHT - SI_OVERLAY_RED_ROWS)
-        return COLOR_RED;
-    if (col < SI_OVERLAY_GREEN_ROWS)
-        return COLOR_GREEN;
-    return COLOR_WHITE;
-}
-
-#if SI_DISPLAY_ROTATED_CCW
-
-// Physical display mounted rotated 90 degrees from landscape (matching the
-// real cabinet). A screen-plane rotation swaps which of the transmitted
-// image's two axes ends up horizontal vs. vertical for the viewer - so the
-// game's own top-bottom axis (`col`, and the overlay bands tied to it)
-// needs to end up on OUR transmission's column axis (x) here, not our row
-// axis (ay), unlike the landscape case below. That means reading a
-// DIFFERENT VRAM column for every output pixel in the row, not a fast
-// sequential bit-scan of one column - see Emulator.md's "Screen
-// orientation" section for the full reasoning and how the specific
-// directions of the two flips below (`col` and `bitpos`) were determined:
-// by simulating the transform against a labeled test pattern and
-// calibrating against directly-observed hardware behaviour, since
-// freehand rotation-direction algebra was repeatedly unreliable here.
-static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
-    unsigned bitpos = (255 - SI_ROT_CROP) - ay;
-
-    for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-        if (x < SI_ROT_X_OFFSET || x >= SI_ROT_X_OFFSET + SI_ARCADE_HEIGHT) {
-            buf[x] = COLOR_BLACK;
-            continue;
-        }
-        unsigned col = (SI_ARCADE_HEIGHT - 1) - (x - SI_ROT_X_OFFSET);
-        const uint8_t *column = vram + (size_t)col * 32;
-        uint8_t byte = column[bitpos >> 3];
-        int on = (byte >> (bitpos & 7)) & 1;
-        buf[x] = on ? overlay_color_for_col(col) : COLOR_BLACK;
-    }
-}
-
-#else
-
-// Normal, un-rotated landscape monitor: un-rotate video RAM's native
-// (physically-vertical-cabinet) addressing into a normal upright wide
-// image - displayed row `ay` (0 = top) comes from raw column
-// `(SI_ARCADE_HEIGHT - 1 - ay)`, and that column's 256 bits become the
-// row's 256 pixels left to right.
+// Samples one row of the arcade's 256x224 1bpp video RAM into 16bpp RGB565
+// pixels, applying the overlay tint. Video RAM is organized as 224 vertical
+// strips of 32 bytes (256 bits) each - byte (col*32 + row/8), bit (row%8) -
+// because the CPU draws into it in the CRT's native (physically rotated)
+// scan order. See Emulator.md's "Screen orientation" section for the full
+// derivation; summary: which raw VRAM column feeds which transmitted row
+// (`col` below), and therefore where the overlay bands fall, is the SAME
+// in both orientation modes - a screen-plane rotation only changes which
+// direction each row's bits should be read in (`bitpos` below). Getting
+// this backwards (flipping `col` instead of `bitpos`, or vice versa) is
+// what produces a left-right mirrored image with the overlay bands in the
+// wrong place, which is exactly the bug an earlier version of this
+// function had.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
     unsigned col = (SI_ARCADE_HEIGHT - 1) - ay;
     const uint8_t *column = vram + (size_t)col * 32;
-    uint16_t lit_color = overlay_color_for_col(col);
+
+    uint16_t lit_color = COLOR_WHITE;
+    if (ay < SI_OVERLAY_RED_ROWS)
+        lit_color = COLOR_RED;
+    else if (ay >= SI_ARCADE_HEIGHT - SI_OVERLAY_GREEN_ROWS)
+        lit_color = COLOR_GREEN;
 
     for (unsigned x = 0; x < SI_ARCADE_WIDTH; ++x) {
-        uint8_t byte = column[x >> 3];
-        int on = (byte >> (x & 7)) & 1;
+#if SI_DISPLAY_ROTATED_CCW
+        unsigned bitpos = (SI_ARCADE_WIDTH - 1) - x;
+#else
+        unsigned bitpos = x;
+#endif
+        uint8_t byte = column[bitpos >> 3];
+        int on = (byte >> (bitpos & 7)) & 1;
         buf[SI_FB_X_OFFSET + x] = on ? lit_color : COLOR_BLACK;
     }
 }
-
-#endif
 
 void game_init(void) {
     for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
@@ -159,18 +115,9 @@ const uint16_t *game_get_scanline(unsigned y, unsigned frame_count) {
         s_mid_screen_fired = true;
     }
 
-#if SI_DISPLAY_ROTATED_CCW
-    // Rotated mode uses the full 240-row canvas - see the SI_ROT_CROP
-    // comment above for why no top/bottom letterbox is needed here (the
-    // border ends up on the column axis instead, handled inside
-    // render_arcade_row itself).
-    render_arcade_row(scanline_arcade, invaders_machine_vram(&s_machine), y);
-    return scanline_arcade;
-#else
     if (y < SI_FB_Y_OFFSET || y >= SI_FB_Y_OFFSET + SI_ARCADE_HEIGHT)
         return scanline_black;
 
     render_arcade_row(scanline_arcade, invaders_machine_vram(&s_machine), y - SI_FB_Y_OFFSET);
     return scanline_arcade;
-#endif
 }
