@@ -166,28 +166,37 @@ couldn't converge no matter which flip was tried.
   Centered in the 320x240 framebuffer with a 32px/8px black letterbox
   border (`SI_FB_X_OFFSET`/`SI_FB_Y_OFFSET`).
 - **`SI_DISPLAY_ROTATED_CCW == 1`** (default; physical monitor mounted
-  rotated 90 degrees **counter-clockwise**, matching the real cabinet):
-  `col` is instead driven by `x` (our column axis) - `col = x -
-  SI_ROT_X_OFFSET`, centered with a 48px border each side
+  rotated 90 degrees from landscape, matching the real cabinet): `col` is
+  instead driven by `x` (our column axis) - `col = (SI_ARCADE_HEIGHT-1) -
+  (x - SI_ROT_X_OFFSET)`, centered with a 48px border each side
   (`(320-224)/2`). This means reading a *different* VRAM column for every
   pixel in the row, not a fast sequential bit-scan of one column. `ay`
-  (our row axis) now drives the bit-position instead: `bitpos = ay +
-  SI_ROT_CROP`. Since the bit-position axis has 256 values and our
+  (our row axis) now drives the bit-position instead: `bitpos = (255 -
+  SI_ROT_CROP) - ay`. Since the bit-position axis has 256 values and our
   framebuffer only has 240 rows, `SI_ROT_CROP = (256-240)/2 = 8` crops 8px
   off each end of that axis (a symmetric ~3%-per-side trim of the
   playfield's outer edge) so it exactly fills all 240 rows with no
   separate top/bottom letterbox needed - the border ends up entirely on
   the column axis instead, handled inline in the loop.
 
-The exact left/right and up/down handedness of the rotated case (i.e.
-whether `col = x - SI_ROT_X_OFFSET` and `bitpos = ay + SI_ROT_CROP` are
-the correct direction, rather than their mirrored/reversed forms) is this
-project's best-effort derivation, not independently verified against real
-hardware - if the game still comes out mirrored or upside-down after this
-fix, that's a one-line change in each formula (replace `x -
-SI_ROT_X_OFFSET` with `(SI_ARCADE_HEIGHT-1) - (x - SI_ROT_X_OFFSET)` for a
-left-right flip, or `ay + SI_ROT_CROP` with `(255-SI_ROT_CROP) - ay` for
-an up-down flip), not a redesign.
+**How the specific `col`/`bitpos` flip directions above were determined**:
+not by freehand rotation-direction algebra, which was repeatedly wrong in
+this file's history (see git log for `src/game.c` - three earlier attempts
+each got some combination of the orientation/mirroring/band-placement
+wrong). What finally worked: writing a small simulation
+(labeled corner markers pushed through the actual render code plus a
+geometric rotation transform, self-tested against a known grid) and
+calibrating *which* rotation transform to use against directly-observed
+hardware behaviour (specifically, exactly which screen edges the red and
+green overlay bands appeared on before this fix), rather than trusting a
+verbal description of "clockwise" or "counter-clockwise" - front-vs-back
+and other reference-frame ambiguities in describing a physical rotation
+made that verbal description an unreliable input on its own. If you need
+to revisit this (e.g. a different physical mounting), the fastest reliable
+path is the same: reproduce that simulation, feed it a couple of
+known-observed reference points from the real screen, and let it tell you
+the flip directions, rather than re-deriving the rotation composition by
+hand.
 
 ## Color overlay
 

@@ -82,27 +82,28 @@ static uint16_t overlay_color_for_col(unsigned col) {
 
 #if SI_DISPLAY_ROTATED_CCW
 
-// Physical display mounted rotated 90 degrees CCW (matching the real
-// cabinet). A screen-plane rotation swaps which of the transmitted image's
-// two axes ends up horizontal vs. vertical for the viewer - so the game's
-// own top-bottom axis (`col`, and the overlay bands tied to it) needs to
-// end up on OUR transmission's column axis (x) here, not our row axis
-// (ay), unlike the landscape case below. That means reading a DIFFERENT
-// VRAM column for every output pixel in the row, not a fast sequential
-// bit-scan of one column - see Emulator.md's "Screen orientation" section
-// for the full reasoning (an earlier version of this function kept `col`
-// tied to `ay` in both modes, which put the overlay bands on the wrong
-// screen axis entirely - left/right instead of top/bottom - no matter
-// which pixels were flipped, since that axis assignment was the actual bug).
+// Physical display mounted rotated 90 degrees from landscape (matching the
+// real cabinet). A screen-plane rotation swaps which of the transmitted
+// image's two axes ends up horizontal vs. vertical for the viewer - so the
+// game's own top-bottom axis (`col`, and the overlay bands tied to it)
+// needs to end up on OUR transmission's column axis (x) here, not our row
+// axis (ay), unlike the landscape case below. That means reading a
+// DIFFERENT VRAM column for every output pixel in the row, not a fast
+// sequential bit-scan of one column - see Emulator.md's "Screen
+// orientation" section for the full reasoning and how the specific
+// directions of the two flips below (`col` and `bitpos`) were determined:
+// by simulating the transform against a labeled test pattern and
+// calibrating against directly-observed hardware behaviour, since
+// freehand rotation-direction algebra was repeatedly unreliable here.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
-    unsigned bitpos = ay + SI_ROT_CROP;
+    unsigned bitpos = (255 - SI_ROT_CROP) - ay;
 
     for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
         if (x < SI_ROT_X_OFFSET || x >= SI_ROT_X_OFFSET + SI_ARCADE_HEIGHT) {
             buf[x] = COLOR_BLACK;
             continue;
         }
-        unsigned col = x - SI_ROT_X_OFFSET;
+        unsigned col = (SI_ARCADE_HEIGHT - 1) - (x - SI_ROT_X_OFFSET);
         const uint8_t *column = vram + (size_t)col * 32;
         uint8_t byte = column[bitpos >> 3];
         int on = (byte >> (bitpos & 7)) & 1;
