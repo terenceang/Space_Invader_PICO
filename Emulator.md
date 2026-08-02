@@ -259,8 +259,8 @@ centering/letterboxing it in the 320x240 framebuffer:
 
 | Mode | Behavior |
 |---|---|
-| `SI_SCALE_NONE` (default) | 1:1, no scaling - this project's original behavior. |
-| `SI_SCALE_FIT` | Uniform scale, as large as possible while still fitting both axes (letterboxed "contain" scaling) - whichever axis is the tighter constraint gets a black border, the other fills exactly. |
+| `SI_SCALE_NONE` | 1:1, no scaling - this project's original behavior. |
+| `SI_SCALE_FIT` (default) | Uniform scale, as large as possible while still fitting both axes (letterboxed "contain" scaling) - whichever axis is the tighter constraint gets a black border, the other fills exactly. |
 | `SI_SCALE_X` | Scales to exactly fill the framebuffer's width; height stays at its native size. |
 | `SI_SCALE_Y` | Scales to exactly fill the framebuffer's height; width stays at its native size. |
 
