@@ -104,10 +104,23 @@ wiring up anything else (e.g. joystick/fire input - still unwired, see
 | 0 / 1 | UART0 TX/RX (stdio) | `PICO_DEFAULT_UART_TX/RX_PIN`, `Sample Code/boards/waveshare_rp2350_pizero.h` |
 | 2 | Free - not actually a WS2812 on this board (see note below) | header pin 3 (standard Pi I2C1 SDA position), per the official schematic |
 | 6 / 7 | I2C0 SDA/SCL (board default, not currently driven by this firmware) | `PICO_DEFAULT_I2C_SDA/SCL_PIN`, same board header |
+| 14 / 15 / 16 | PIO SNES Controller (Latch/Clock/Data) | `src/input/snes_controller.c` |
 | 18 / 19 / 21 | I2S audio (BCLK/LRCLK/DOUT) | `src/audio/audio_i2s.c` |
 | 20 | MAX98357A SD (mute/shutdown, active-low) | `src/audio/audio_i2s.c` |
 | 32-39 | DVI TMDS (3 data lanes + differential clock) | `src/dvi/dvi_engine.c` |
 | 44 / 45 / 46 | DVI DDC/CEC (wired to the mini-HDMI connector's SDA/SCL/CEC pins, unused by this firmware) | board schematic |
+
+### SNES Controller Pin Mapping
+
+`src/input/snes_controller.c` reads a standard SNES controller via a PIO2 state machine (`src/input/snes_controller.pio`):
+
+| Signal | GPIO | 40-pin header position | Description |
+| :--- | :--- | :--- | :--- |
+| **LATCH** | **GPIO 14** | Physical pin 8 | Latch pulse output (12 µs pulse) |
+| **CLOCK** | **GPIO 15** | Physical pin 10 | Shift clock output (500 kHz) |
+| **DATA** | **GPIO 16** | Physical pin 36 | Serial data input (internal pull-up enabled) |
+| **VCC** | **3.3V / 5V** | Physical pin 1 or 2 | Controller power supply |
+| **GND** | **GND** | Physical pin 6, 9, 14, 20, or 34 | Common ground |
 
 > [!NOTE]
 > `Sample Code/boards/waveshare_rp2350_pizero.h` defines `PICO_DEFAULT_WS2812_PIN 2`
@@ -189,7 +202,7 @@ Connecting a serial terminal (such as VS Code Serial Monitor or TeraTerm) over e
 
 ```text
 ==================================================
-  Space Invader PICO  v0.4.0
+  Space Invader PICO  v0.5.0
 ==================================================
 [DEBUG] Microcontroller: RP2350B (Cortex-M33)
 [DEBUG] Core Voltage   : 1.25V

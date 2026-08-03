@@ -28,7 +28,7 @@ set(PICO_BOARD waveshare_rp2350_pizero CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(Space_Invader_PICO VERSION 0.4.0 LANGUAGES C CXX ASM)
+project(Space_Invader_PICO VERSION 0.5.0 LANGUAGES C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -95,6 +95,7 @@ add_executable(Space_Invader_PICO
         src/audio/sound_effects.c
         src/emu/i8080.c
         src/emu/invaders_machine.c
+        src/input/snes_controller.c
         ${SI_ROM_GEN}
         ${SI_SOUND_GEN}
 )
@@ -130,6 +131,7 @@ target_include_directories(Space_Invader_PICO PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src/dvi
         ${CMAKE_CURRENT_LIST_DIR}/src/audio
         ${CMAKE_CURRENT_LIST_DIR}/src/emu
+        ${CMAKE_CURRENT_LIST_DIR}/src/input
 )
 
 # Required for PIO to address GPIO32-39 (RP2350B extends PIO's addressable
@@ -147,6 +149,7 @@ target_compile_definitions(Space_Invader_PICO PRIVATE
 
 pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/dvi/dvi_serialiser.pio)
 pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/audio/audio_i2s.pio)
+pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/input/snes_controller.pio)
 
 pico_add_extra_outputs(Space_Invader_PICO)
 

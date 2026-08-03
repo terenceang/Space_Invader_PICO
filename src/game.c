@@ -6,6 +6,7 @@
 #include "display_config.h"
 #include "invaders_machine.h"
 #include "sound_effects.h"
+#include "snes_controller.h"
 
 // ============================================================================
 // Space Invaders arcade emulator: video output.
@@ -310,12 +311,21 @@ void game_init(void) {
     s_machine.sound_write = sound_effects_on_port_write;
     s_mid_screen_fired = false;
     s_scanline_buf_idx = 0;
+    snes_controller_init();
 }
 
 const uint16_t *game_get_scanline(unsigned y, unsigned frame_count) {
     (void)frame_count;
 
     if (y == 0) {
+        // Poll SNES controller inputs at vblank
+        uint16_t btns = snes_controller_read();
+        invaders_machine_set_in1(&s_machine, SI_IN1_COIN,     (btns & SNES_BTN_SELECT) != 0);
+        invaders_machine_set_in1(&s_machine, SI_IN1_P1_START, (btns & SNES_BTN_START)  != 0);
+        invaders_machine_set_in1(&s_machine, SI_IN1_P1_LEFT,  (btns & SNES_BTN_LEFT)   != 0);
+        invaders_machine_set_in1(&s_machine, SI_IN1_P1_RIGHT, (btns & SNES_BTN_RIGHT)  != 0);
+        invaders_machine_set_in1(&s_machine, SI_IN1_P1_FIRE,  (btns & (SNES_BTN_A | SNES_BTN_B | SNES_BTN_Y | SNES_BTN_X)) != 0);
+
         // Real hardware fires this as the CRT beam finishes the visible
         // frame and enters vertical blank - functionally "the end of the
         // previous frame", which is equivalent to "just before this one".

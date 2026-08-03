@@ -69,6 +69,7 @@ const uint8_t *invaders_machine_vram(const invaders_machine_t *m);
 // IN1 control bits, matching the real cabinet's port wiring. Coin/2P
 // controls aren't defined here - this board only drives a single-player
 // cocktail-less cabinet setup.
+#define SI_IN1_COIN     (1u << 0)
 #define SI_IN1_P1_START (1u << 2)
 #define SI_IN1_P1_FIRE  (1u << 4)
 #define SI_IN1_P1_LEFT  (1u << 5)
