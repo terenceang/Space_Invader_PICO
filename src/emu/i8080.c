@@ -10,7 +10,7 @@
 // duplicate switch cases for those four blocks.
 // ============================================================================
 
-static uint8_t reg_get(i8080_t *c, unsigned idx) {
+static inline uint8_t reg_get(i8080_t *c, unsigned idx) {
     switch (idx) {
         case 0: return c->b;
         case 1: return c->c;
@@ -23,7 +23,7 @@ static uint8_t reg_get(i8080_t *c, unsigned idx) {
     }
 }
 
-static void reg_set(i8080_t *c, unsigned idx, uint8_t v) {
+static inline void reg_set(i8080_t *c, unsigned idx, uint8_t v) {
     switch (idx) {
         case 0: c->b = v; break;
         case 1: c->c = v; break;
@@ -37,7 +37,7 @@ static void reg_set(i8080_t *c, unsigned idx, uint8_t v) {
 }
 
 // Register-pair decode for LXI/INX/DCX/DAD: 0=BC 1=DE 2=HL 3=SP.
-static uint16_t rp_get(i8080_t *c, unsigned rp) {
+static inline uint16_t rp_get(i8080_t *c, unsigned rp) {
     switch (rp) {
         case 0: return (uint16_t)((c->b << 8) | c->c);
         case 1: return (uint16_t)((c->d << 8) | c->e);
@@ -46,7 +46,7 @@ static uint16_t rp_get(i8080_t *c, unsigned rp) {
     }
 }
 
-static void rp_set(i8080_t *c, unsigned rp, uint16_t v) {
+static inline void rp_set(i8080_t *c, unsigned rp, uint16_t v) {
     switch (rp) {
         case 0: c->b = (uint8_t)(v >> 8); c->c = (uint8_t)v; break;
         case 1: c->d = (uint8_t)(v >> 8); c->e = (uint8_t)v; break;
@@ -57,7 +57,7 @@ static void rp_set(i8080_t *c, unsigned rp, uint16_t v) {
 
 // PUSH/POP use a different pairing for index 3: PSW (A + flag byte) instead
 // of SP - a real 8080 quirk, not a typo.
-static uint16_t rp_push_get(i8080_t *c, unsigned rp) {
+static inline uint16_t rp_push_get(i8080_t *c, unsigned rp) {
     if (rp == 3) {
         uint8_t psw = 0x02; // bit1 always 1, bits 3/5 always 0 on real hardware
         psw |= c->flag_cy ? 0x01 : 0;
@@ -70,7 +70,7 @@ static uint16_t rp_push_get(i8080_t *c, unsigned rp) {
     return rp_get(c, rp);
 }
 
-static void rp_pop_set(i8080_t *c, unsigned rp, uint16_t v) {
+static inline void rp_pop_set(i8080_t *c, unsigned rp, uint16_t v) {
     if (rp == 3) {
         c->a = (uint8_t)(v >> 8);
         uint8_t psw = (uint8_t)v;
@@ -88,24 +88,24 @@ static void rp_pop_set(i8080_t *c, unsigned rp, uint16_t v) {
 // Memory/stack helpers
 // ============================================================================
 
-static uint8_t fetch8(i8080_t *c) {
+static inline uint8_t fetch8(i8080_t *c) {
     return c->mem_read(c->ctx, c->pc++);
 }
 
-static uint16_t fetch16(i8080_t *c) {
+static inline uint16_t fetch16(i8080_t *c) {
     uint8_t lo = fetch8(c);
     uint8_t hi = fetch8(c);
     return (uint16_t)((hi << 8) | lo);
 }
 
 // Stack grows down; low byte at the lower address, matching real 8080 layout.
-static void push16(i8080_t *c, uint16_t v) {
+static inline void push16(i8080_t *c, uint16_t v) {
     uint8_t hi = (uint8_t)(v >> 8), lo = (uint8_t)v;
     c->mem_write(c->ctx, --c->sp, hi);
     c->mem_write(c->ctx, --c->sp, lo);
 }
 
-static uint16_t pop16(i8080_t *c) {
+static inline uint16_t pop16(i8080_t *c) {
     uint8_t lo = c->mem_read(c->ctx, c->sp++);
     uint8_t hi = c->mem_read(c->ctx, c->sp++);
     return (uint16_t)((hi << 8) | lo);
@@ -115,20 +115,17 @@ static uint16_t pop16(i8080_t *c) {
 // Flags
 // ============================================================================
 
-static uint8_t parity_even(uint8_t v) {
-    v ^= (uint8_t)(v >> 4);
-    v ^= (uint8_t)(v >> 2);
-    v ^= (uint8_t)(v >> 1);
-    return (uint8_t)(~v) & 1;
+static inline uint8_t parity_even(uint8_t v) {
+    return (uint8_t)(!__builtin_parity(v));
 }
 
-static void set_zsp(i8080_t *c, uint8_t v) {
+static inline void set_zsp(i8080_t *c, uint8_t v) {
     c->flag_z = (v == 0);
     c->flag_s = (v & 0x80) != 0;
     c->flag_p = parity_even(v);
 }
 
-static void do_add(i8080_t *c, uint8_t v, uint8_t carry_in) {
+static inline void do_add(i8080_t *c, uint8_t v, uint8_t carry_in) {
     unsigned sum = (unsigned)c->a + v + carry_in;
     c->flag_ac = (((c->a & 0xF) + (v & 0xF) + carry_in) & 0x10) != 0;
     c->flag_cy = sum > 0xFF;
@@ -136,7 +133,7 @@ static void do_add(i8080_t *c, uint8_t v, uint8_t carry_in) {
     set_zsp(c, c->a);
 }
 
-static void do_sub(i8080_t *c, uint8_t v, uint8_t borrow_in) {
+static inline void do_sub(i8080_t *c, uint8_t v, uint8_t borrow_in) {
     int result = (int)c->a - (int)v - (int)borrow_in;
     c->flag_ac = (((int)(c->a & 0xF) - (int)(v & 0xF) - (int)borrow_in) >= 0);
     c->flag_cy = result < 0;
@@ -144,21 +141,21 @@ static void do_sub(i8080_t *c, uint8_t v, uint8_t borrow_in) {
     set_zsp(c, c->a);
 }
 
-static void do_cmp(i8080_t *c, uint8_t v) {
+static inline void do_cmp(i8080_t *c, uint8_t v) {
     int result = (int)c->a - (int)v;
     c->flag_ac = (((int)(c->a & 0xF) - (int)(v & 0xF)) >= 0);
     c->flag_cy = result < 0;
     set_zsp(c, (uint8_t)result);
 }
 
-static uint8_t do_inr(i8080_t *c, uint8_t v) {
+static inline uint8_t do_inr(i8080_t *c, uint8_t v) {
     uint8_t r = (uint8_t)(v + 1);
     c->flag_ac = ((v & 0xF) + 1) > 0xF;
     set_zsp(c, r);
     return r;
 }
 
-static uint8_t do_dcr(i8080_t *c, uint8_t v) {
+static inline uint8_t do_dcr(i8080_t *c, uint8_t v) {
     uint8_t r = (uint8_t)(v - 1);
     c->flag_ac = (v & 0xF) != 0;
     set_zsp(c, r);
@@ -168,7 +165,7 @@ static uint8_t do_dcr(i8080_t *c, uint8_t v) {
 // Textbook double-dabble BCD correction. Space Invaders' scoring code uses
 // DAA to keep the score in packed BCD (cheap to turn into ASCII digits for
 // the video RAM text), so this needs to be right, not just plausible.
-static void do_daa(i8080_t *c) {
+static inline void do_daa(i8080_t *c) {
     uint8_t a = c->a;
     uint8_t cy = c->flag_cy;
     uint8_t correction = 0;
@@ -187,7 +184,7 @@ static void do_daa(i8080_t *c) {
     set_zsp(c, c->a);
 }
 
-static int cond_true(i8080_t *c, unsigned cc) {
+static inline int cond_true(i8080_t *c, unsigned cc) {
     switch (cc) {
         case 0: return !c->flag_z;  // NZ
         case 1: return c->flag_z;   // Z

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "testcard.h"
 #include "display_config.h"
@@ -89,12 +90,9 @@ const uint16_t *testcard_get_scanline(unsigned y, unsigned frame_count) {
     } else if (y >= 225 && y < 235) {
         // Section 3 (225..234): Moving Sync / Animation Bar
         unsigned anim_pos = (frame_count * 2) % (FRAME_WIDTH - 20);
-        for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-            if (x >= anim_pos && x < anim_pos + 20) {
-                scanline_anim[x] = COLOR_WHITE;
-            } else {
-                scanline_anim[x] = scanline_bottom[x];
-            }
+        memcpy(scanline_anim, scanline_bottom, sizeof(scanline_anim));
+        for (unsigned x = anim_pos; x < anim_pos + 20; ++x) {
+            scanline_anim[x] = COLOR_WHITE;
         }
         return scanline_anim;
     } else {

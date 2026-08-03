@@ -16,6 +16,34 @@
 // ============================================================================
 // Core 0 Execution: Main Program & Scanline Dispatcher
 // ============================================================================
+#if DEBUG_AUDIO_ONLY
+// Audio-only bring-up mode (see display_config.h's DEBUG_AUDIO_ONLY) - no
+// DVI, no game, no Core 1, no 252MHz overclock. Isolates the I2S subsystem
+// from every other part of this project for hardware troubleshooting.
+int main() {
+    stdio_init_all();
+
+    printf("\n==================================================\n");
+    printf("  Space Invader PICO  v%s  [DEBUG_AUDIO_ONLY]\n", SPACE_INVADER_PICO_VERSION);
+    printf("==================================================\n");
+    printf("[DEBUG] Audio-only mode: DVI/game/Core 1 skipped entirely.\n");
+    printf("[DEBUG] System clock: %lu Hz (no DVI overclock in this mode)\n",
+           (unsigned long)clock_get_hz(clk_sys));
+
+    printf("[DEBUG] Initializing I2S audio (GPIO18 BCLK / GPIO19 LRCLK / GPIO21 DOUT)...\n");
+    audio_i2s_init();
+    printf("[DEBUG] I2S audio initialized.\n");
+#if DEBUG_AUDIO_TEST_TONE
+    audio_i2s_debug_play_test_tone();
+    printf("[DEBUG] DEBUG_AUDIO_TEST_TONE enabled: playing continuous ~441Hz test tone.\n");
+#else
+    printf("[DEBUG] DEBUG_AUDIO_TEST_TONE is 0 - nothing will play; enable it too.\n");
+#endif
+
+    while (true)
+        tight_loop_contents();
+}
+#else
 int main() {
     dvi_display_clock_init();
 
@@ -41,12 +69,17 @@ int main() {
 #endif
     game_init();
 
-    // I2S audio bring-up (test tone only - see audio_i2s.h). Registers its
-    // DMA IRQ on this core (Core 0), independent of the DVI engine's own
+    // I2S audio bring-up (see audio_i2s.h) - game_init() above already wired
+    // the emulated machine's port 3/5 sound-effect writes to it. Registers
+    // its DMA IRQ on this core (Core 0), independent of the DVI engine's own
     // DMA_IRQ_0 handler on Core 1.
     printf("[DEBUG] Initializing I2S audio (GPIO18 BCLK / GPIO19 LRCLK / GPIO21 DOUT)...\n");
     audio_i2s_init();
-    printf("[DEBUG] I2S audio initialized - test tone playing.\n");
+    printf("[DEBUG] I2S audio initialized.\n");
+#if DEBUG_AUDIO_TEST_TONE
+    audio_i2s_debug_play_test_tone();
+    printf("[DEBUG] DEBUG_AUDIO_TEST_TONE enabled: playing continuous ~441Hz test tone.\n");
+#endif
 
     // Launch Core 1 for TMDS output stream
     printf("[DEBUG] Launching Core 1 for DVI TMDS serialiser...\n");
@@ -95,3 +128,4 @@ int main() {
         ++frame_count;
     }
 }
+#endif // DEBUG_AUDIO_ONLY

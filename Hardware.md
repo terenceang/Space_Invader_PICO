@@ -56,6 +56,43 @@ driver writeup.
 > must stay on consecutive GPIO numbers (18/19) - `audio_i2s.pio`'s side-set
 > field drives both from one 2-bit value.
 
+### MAX98357A Amplifier Module
+
+The amplifier used with this project is a **MAX98357A** breakout (3W into 8ohm,
+I2S digital input, class-D). Its 7-pin header (LRC, BCLK, DIN, GAIN, SD, GND,
+VIN) maps onto the I2S bus above plus power/mode pins that have no RP2350
+signal equivalent:
+
+| MAX98357A Pin | Connects To | Description |
+| :--- | :--- | :--- |
+| **LRC** | **GPIO 19** (LRCLK/WS) | Word-select clock |
+| **BCLK** | **GPIO 18** (BCLK) | Bit clock |
+| **DIN** | **GPIO 21** (DOUT) | I2S serial audio data (from the RP2350's perspective this is an output, "DOUT") |
+| **GAIN** | Left floating (or resistor to GND/VIN per datasheet) | Sets fixed gain (9dB default when floating; 3/6/12/15dB via a resistor divider - see the MAX98357A datasheet's gain table) |
+| **SD** | **GPIO 20** | Shutdown/enable, active-low; driven by `src/audio/audio_i2s.c` as a mute control (`audio_i2s_set_mute()`) - high = amplifier enabled, low = muted/shutdown. Physical pin 38 on the 40-pin header, adjacent to BCLK/LRCLK/DOUT (pins 12/35/40) |
+| **VIN** | 5V rail (board 40-pin header) | Amplifier supply - needs 5V for full 3W output, not 3V3 |
+| **GND** | GND (board 40-pin header) | Common ground with the RP2350-PiZero |
+
+> [!NOTE]
+> GAIN is the only pin left as a pure analog/logic strap - `src/audio/audio_i2s.c`
+> drives BCLK/LRCLK/DOUT for the I2S signal path and GPIO20/SD as a plain GPIO
+> output for mute/enable. `audio_i2s_init()` enables the amp by default;
+> `src/audio/sound_effects.c` then drives it from the real cabinet's own port 3
+> bit 5 AMP-enable line for the rest of the time the game runs.
+
+> [!NOTE]
+> **Hardware bring-up finding**: if output sounds like broadband static/noise
+> rather than a clean tone, check the physical BCLK/LRCLK/DIN hookup wiring
+> before suspecting firmware. During this project's own bring-up, a real DMA
+> bug (`CHAIN_TO` not resetting `READ_ADDR` on retrigger - now fixed in
+> `audio_i2s.c`) was found and fixed, but noise persisted afterward; it was
+> isolated down to hookup-wire EMI pickup, confirmed by the fact that even
+> the simplest possible single-buffer, no-chaining, no-mixer DMA transfer
+> still came out noisy. Short, twisted (with a GND wire), and away from the
+> DVI GPIO32-39 lines is what actually fixed it - not a code change. Use
+> `DEBUG_AUDIO_TEST_TONE` and `DEBUG_AUDIO_ONLY` (`src/display_config.h`) to
+> reproduce a clean isolated test if this needs debugging again.
+
 ### GPIO already claimed by this project
 
 Consulted when picking the I2S pins above, and worth checking again before
@@ -65,11 +102,23 @@ wiring up anything else (e.g. joystick/fire input - still unwired, see
 | GPIO | Used by | Source |
 | :--- | :--- | :--- |
 | 0 / 1 | UART0 TX/RX (stdio) | `PICO_DEFAULT_UART_TX/RX_PIN`, `Sample Code/boards/waveshare_rp2350_pizero.h` |
-| 2 | WS2812 status LED (board default, not currently driven by this firmware) | `PICO_DEFAULT_WS2812_PIN`, same board header |
+| 2 | Free - not actually a WS2812 on this board (see note below) | header pin 3 (standard Pi I2C1 SDA position), per the official schematic |
 | 6 / 7 | I2C0 SDA/SCL (board default, not currently driven by this firmware) | `PICO_DEFAULT_I2C_SDA/SCL_PIN`, same board header |
 | 18 / 19 / 21 | I2S audio (BCLK/LRCLK/DOUT) | `src/audio/audio_i2s.c` |
+| 20 | MAX98357A SD (mute/shutdown, active-low) | `src/audio/audio_i2s.c` |
 | 32-39 | DVI TMDS (3 data lanes + differential clock) | `src/dvi/dvi_engine.c` |
 | 44 / 45 / 46 | DVI DDC/CEC (wired to the mini-HDMI connector's SDA/SCL/CEC pins, unused by this firmware) | board schematic |
+
+> [!NOTE]
+> `Sample Code/boards/waveshare_rp2350_pizero.h` defines `PICO_DEFAULT_WS2812_PIN 2`
+> with the comment "The PRO Micro doesn't have a plain LED, but a WS2812" - that
+> comment and define are boilerplate carried over from a different board's SDK
+> file (the RP2040 Pro Micro), not a description of this board's actual PCB.
+> Checked against the official schematic (`RP2350-PiZero.pdf`): the only LED on
+> this board (`LED1`) is a plain 0603 indicator wired straight to VBUS/3V3
+> through a resistor - not addressable, not GPIO-driven, and not on GPIO2. GPIO2
+> is simply the header's standard Pi-compatible I2C1 SDA pin (physical pin 3)
+> and is free for this project to use.
 
 ---
 
@@ -140,7 +189,7 @@ Connecting a serial terminal (such as VS Code Serial Monitor or TeraTerm) over e
 
 ```text
 ==================================================
-  Space Invader PICO  v0.2.0
+  Space Invader PICO  v0.4.0
 ==================================================
 [DEBUG] Microcontroller: RP2350B (Cortex-M33)
 [DEBUG] Core Voltage   : 1.25V

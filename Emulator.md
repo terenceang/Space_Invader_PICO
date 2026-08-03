@@ -75,7 +75,7 @@ I/O ports (matching the real cabinet's wiring):
 | 3 | Read | Shift-register result (see below) |
 | 2 | Write | Shift-register read offset (0-7 bits) |
 | 4 | Write | Shifts a new byte into the shift register |
-| 3, 5 | Write | Discrete sound-effect trigger bits - **not emulated yet**, writes are accepted and dropped |
+| 3, 5 | Write | Discrete sound-effect trigger bits - forwarded to `src/audio/sound_effects.c` (see below) |
 | 6 | Write | Watchdog reset strobe - **not emulated**, no-op |
 
 **The shift register** is the real hardware's trick for drawing
@@ -87,6 +87,22 @@ sets a 0-7 bit offset, and `IN 3` returns
 16-bit register at an arbitrary bit position. The game uses this
 constantly; without it, sprites would render torn or not move smoothly
 between byte boundaries.
+
+**Sound effects**: the real cabinet's sounds came from a discrete analog
+sound board wired to port 3/5 bits, not a sample ROM - there's nothing to
+extract for audio the way there is for video. `invaders_machine_t` exposes
+an optional `sound_write` callback (NULL by default, so the machine still
+runs standalone with no audio attached), which `game_init()` wires to
+`src/audio/sound_effects.c`. That file knows the actual bit mapping (port 3:
+UFO/Shot/Flash/Invader die/Extended play/AMP-enable; port 5: 4 fleet-movement
+thumps + UFO hit - see computerarcheology.com's hardware writeup) and turns
+each into an `audio_i2s_play_sound()` (one-shot) or
+`audio_i2s_set_sound_loop()` (UFO only, level-triggered) call.
+`src/audio/audio_i2s.c` mixes up to 4 one-shot voices plus the UFO loop into
+one mono stream. The actual sample data behind each effect is **user-supplied**
+(`sounds/*.pcm`, gitignored - see `sounds/README.md`) and embedded at build
+time the same way the ROM is; a sound whose file wasn't supplied plays
+nothing rather than failing the build.
 
 **Inputs are currently unwired.** `invaders_machine_set_in1()` exists and
 the `SI_IN1_*` bit masks match the real cabinet's port layout, but nothing
@@ -336,11 +352,12 @@ rotation/mirror/overlay/scanlines/scaling.
 
 ## Limitations (this pass: CPU core + video only)
 
-- **No sound.** Ports 3/5 (the discrete sound-effect trigger bits) are
-  read/accepted but dropped - see the Roadmap. An I2S output driver
-  (`src/audio/audio_i2s.c`) exists and is wired up in `main.c`, but it only
-  plays a bring-up test tone so far - nothing decodes port 3/5 into real
-  arcade sound effects yet.
+- **Sound effects require user-supplied sample files.** Ports 3/5 are fully
+  decoded into `audio_i2s_play_sound()`/`audio_i2s_set_sound_loop()` calls
+  (see the "Sound effects" section above), but the actual PCM data behind
+  each effect isn't vendored - it comes from `sounds/*.pcm`, which you have
+  to supply yourself (see `sounds/README.md`). Without those files, the game
+  runs with correct sound *timing* but no actual audio.
 - **No input.** Coin/start/joystick/fire aren't wired to anything - the ROM
   runs its attract-mode loop indefinitely. `invaders_machine_set_in1()` is
   ready for whatever GPIO/controller wiring comes next.

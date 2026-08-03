@@ -32,6 +32,16 @@ typedef struct {
     // driven by an actual control default to this cabinet's real idle
     // state (DIP switches, "not connected" pull-ups).
     uint8_t in0, in1, in2;
+
+    // Optional hook for port 3/5 discrete sound-effect writes (real
+    // hardware's UFO/Shot/Flash/fleet-movement thumps etc. - see
+    // src/audio/sound_effects.c, which knows the actual bit mapping this
+    // file deliberately doesn't). NULL by default, so writes are simply
+    // dropped and this machine still runs standalone with no audio
+    // subsystem attached - same optional-callback pattern i8080_t itself
+    // uses for its mem/io hooks.
+    void (*sound_write)(void *ctx, uint8_t port, uint8_t value);
+    void *sound_ctx;
 } invaders_machine_t;
 
 // Wires up the CPU's memory/IO callbacks, clears RAM, and resets the CPU to

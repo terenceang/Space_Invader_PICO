@@ -1,9 +1,11 @@
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "game.h"
 #include "display_config.h"
 #include "invaders_machine.h"
+#include "sound_effects.h"
 
 // ============================================================================
 // Space Invaders arcade emulator: video output.
@@ -103,7 +105,12 @@
 #define SI_MID_SCREEN_ROW    (FRAME_HEIGHT / 2)
 
 static invaders_machine_t s_machine;
-static uint16_t scanline_arcade[FRAME_WIDTH];
+
+// Ring buffer of scanlines to avoid Core 0 / Core 1 memory contention
+#define SCANLINE_BUF_COUNT 4
+static uint16_t scanline_arcade_bufs[SCANLINE_BUF_COUNT][FRAME_WIDTH];
+static unsigned s_scanline_buf_idx = 0;
+
 static bool s_mid_screen_fired;
 
 // Video RAM is organized as 224 vertical strips of 32 bytes (256 bits)
@@ -113,7 +120,7 @@ static bool s_mid_screen_fired;
 // space: lx 0..255 (left-right), ly 0..223 (top-to-bottom, 0 = score/UFO
 // row) - this is the rotation-adjusted content sampling and is untouched
 // by the overlay rotation below.
-static int sample_bit(const uint8_t *vram, unsigned lx, unsigned ly) {
+static inline int sample_bit(const uint8_t *vram, unsigned lx, unsigned ly) {
     unsigned col = (SI_ARCADE_HEIGHT - 1) - ly;
     const uint8_t *column = vram + (size_t)col * 32;
     return (column[lx >> 3] >> (lx & 7)) & 1;
@@ -133,7 +140,7 @@ static int sample_bit(const uint8_t *vram, unsigned lx, unsigned ly) {
 // content's own axes, since this rotation is deliberately decoupled from
 // content orientation.
 #if SI_ENABLE_COLOR_OVERLAY
-static uint16_t overlay_color_for_screen_x(unsigned ox, unsigned active_width) {
+static inline uint16_t overlay_color_for_screen_x(unsigned ox, unsigned active_width) {
     if (ox >= active_width - SI_OVERLAY_RED_ROWS)
         return COLOR_RED;
     if (ox < SI_OVERLAY_GREEN_ROWS)
@@ -145,7 +152,7 @@ static uint16_t overlay_color_for_screen_x(unsigned ox, unsigned active_width) {
 // Color for a lit pixel: the overlay tint above, or plain white for a
 // monochrome image matching the real hardware's video RAM bit-for-bit -
 // see SI_ENABLE_COLOR_OVERLAY in display_config.h.
-static uint16_t lit_pixel_color(unsigned ox, unsigned active_width) {
+static inline uint16_t lit_pixel_color(unsigned ox, unsigned active_width) {
 #if SI_ENABLE_COLOR_OVERLAY
     return overlay_color_for_screen_x(ox, active_width);
 #else
@@ -157,7 +164,7 @@ static uint16_t lit_pixel_color(unsigned ox, unsigned active_width) {
 
 // Applies the configured mirror flags in the game's own landscape space,
 // before rotation - see display_config.h.
-static void apply_mirror(unsigned *lx, unsigned *ly) {
+static inline void apply_mirror(unsigned *lx, unsigned *ly) {
 #if SI_DISPLAY_FLIP_H
     *lx = (SI_ARCADE_WIDTH - 1) - *lx;
 #endif
@@ -168,111 +175,119 @@ static void apply_mirror(unsigned *lx, unsigned *ly) {
 
 // CRT scanline effect: darkens alternating pixels along `lx` (post-mirror
 // game-space horizontal position) rather than our transmission row index
-// or `ly` - see Emulator.md's "CRT scanline effect" section for why this
-// specific axis was picked (empirically, after `ly` produced vertical
-// rather than horizontal bands on real hardware for the confirmed
-// SI_DISPLAY_ROTATION/flip settings - the reasoning that `ly` should have
-// been row-invariant for SI_DISPLAY_ROTATION 0 did not match what was
-// actually observed, so this was changed based on that observation rather
-// than further theory). SI_SCANLINE_INTENSITY is a compile-time constant,
-// so the divisions below fold into cheap multiply-shift sequences, not
-// runtime division.
-static uint16_t apply_scanline(uint16_t color, unsigned lx) {
+// or `ly` - see Emulator.md's "CRT scanline effect" section.
+// Converted division by 100 into a fixed-point Q8 multiply-shift for speed.
 #if SI_ENABLE_SCANLINES
+#define SI_SCANLINE_SCALE_Q8 (((100 - SI_SCANLINE_INTENSITY) * 256 + 50) / 100)
+static inline uint16_t apply_scanline(uint16_t color, unsigned lx) {
     if (lx & 1) {
         unsigned r = (color >> 11) & 0x1F;
         unsigned g = (color >> 5) & 0x3F;
         unsigned b = color & 0x1F;
-        r = (r * (100 - SI_SCANLINE_INTENSITY)) / 100;
-        g = (g * (100 - SI_SCANLINE_INTENSITY)) / 100;
-        b = (b * (100 - SI_SCANLINE_INTENSITY)) / 100;
+        r = (r * SI_SCANLINE_SCALE_Q8) >> 8;
+        g = (g * SI_SCANLINE_SCALE_Q8) >> 8;
+        b = (b * SI_SCANLINE_SCALE_Q8) >> 8;
         return (uint16_t)((r << 11) | (g << 5) | b);
     }
     return color;
+}
 #else
+static inline uint16_t apply_scanline(uint16_t color, unsigned lx) {
     (void)lx;
     return color;
-#endif
 }
+#endif
 
 #if SI_DISPLAY_ROTATION == 0 || SI_DISPLAY_ROTATION == 180
 
 // SI_DISPLAY_ROTATION == 0: normal, un-rotated landscape monitor - output
 // keeps the source's own 256x224 shape.
 // SI_DISPLAY_ROTATION == 180: output is the same shape, upside down.
-// SI_SCREEN_OFFSET_X/Y (display_config.h) shift the image on top of the
-// letterbox centering below - applied here via `screen_x`/`screen_y`,
-// signed since a shift can push the image partly off either edge.
-// SI_SCALE_MODE (display_config.h) scales the image before that
-// centering: `display_x`/`display_y` are the position within the
-// (possibly-scaled) displayed image, `ox`/`oy` are that position mapped
-// back to the *content's* native 256x224 space via nearest-neighbor
-// sampling - which is what the rotation/mirror math below actually
-// consumes, unchanged from before scaling existed.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
     int screen_y = (int)ay - SI_SCREEN_OFFSET_Y;
     if (screen_y < (int)SI_ACTIVE_Y_OFFSET || screen_y >= (int)(SI_ACTIVE_Y_OFFSET + SI_DISPLAY_H)) {
-        for (unsigned x = 0; x < FRAME_WIDTH; ++x)
-            buf[x] = COLOR_BLACK;
+        memset(buf, 0, FRAME_WIDTH * sizeof(uint16_t));
         return;
     }
     unsigned display_y = (unsigned)screen_y - SI_ACTIVE_Y_OFFSET;
     unsigned oy = (display_y * SI_CONTENT_H) / SI_DISPLAY_H;
 
-    for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-        int screen_x = (int)x - SI_SCREEN_OFFSET_X;
-        if (screen_x < (int)SI_ACTIVE_X_OFFSET || screen_x >= (int)(SI_ACTIVE_X_OFFSET + SI_DISPLAY_W)) {
-            buf[x] = COLOR_BLACK;
-            continue;
-        }
-        unsigned display_x = (unsigned)screen_x - SI_ACTIVE_X_OFFSET;
-        unsigned ox = (display_x * SI_CONTENT_W) / SI_DISPLAY_W;
+    int start_x = SI_SCREEN_OFFSET_X + SI_ACTIVE_X_OFFSET;
+    int end_x = start_x + (int)SI_DISPLAY_W;
+    int clip_start = start_x < 0 ? 0 : (start_x > FRAME_WIDTH ? FRAME_WIDTH : start_x);
+    int clip_end = end_x < 0 ? 0 : (end_x > FRAME_WIDTH ? FRAME_WIDTH : end_x);
+
+    if (clip_start > 0)
+        memset(buf, 0, (size_t)clip_start * sizeof(uint16_t));
+    if (clip_end < FRAME_WIDTH)
+        memset(buf + clip_end, 0, (size_t)(FRAME_WIDTH - clip_end) * sizeof(uint16_t));
+
+    if (clip_start >= clip_end)
+        return;
+
+    uint32_t step_x = ((uint32_t)SI_CONTENT_W << 16) / SI_DISPLAY_W;
+    uint32_t ox_fp = (uint32_t)(clip_start - start_x) * step_x;
+
+#if SI_DISPLAY_ROTATION == 180
+    unsigned ly = (SI_ARCADE_HEIGHT - 1) - oy;
+#else
+    unsigned ly = oy;
+#endif
+
+    for (int x = clip_start; x < clip_end; ++x) {
+        unsigned ox = ox_fp >> 16;
+        ox_fp += step_x;
+
 #if SI_DISPLAY_ROTATION == 180
         unsigned lx = (SI_ARCADE_WIDTH - 1) - ox;
-        unsigned ly = (SI_ARCADE_HEIGHT - 1) - oy;
 #else
         unsigned lx = ox;
-        unsigned ly = oy;
 #endif
-        apply_mirror(&lx, &ly);
-        uint16_t color = sample_bit(vram, lx, ly) ? lit_pixel_color(ox, SI_ARCADE_WIDTH) : COLOR_BLACK;
-        buf[x] = apply_scanline(color, lx);
+        unsigned cur_lx = lx, cur_ly = ly;
+        apply_mirror(&cur_lx, &cur_ly);
+
+        unsigned col = (SI_ARCADE_HEIGHT - 1) - cur_ly;
+        const uint8_t *column = vram + (size_t)col * 32;
+        int bit = (column[cur_lx >> 3] >> (cur_lx & 7)) & 1;
+
+        uint16_t color = bit ? lit_pixel_color(ox, SI_ARCADE_WIDTH) : COLOR_BLACK;
+        buf[x] = apply_scanline(color, cur_lx);
     }
 }
 
 #else // SI_DISPLAY_ROTATION == 90 or 270
 
-// SI_DISPLAY_ROTATION == 90: output rotated 90 degrees clockwise from the
-// source - output is 224x256-shaped (width/height swap under rotation).
-// SI_DISPLAY_ROTATION == 270: output rotated 90 degrees counter-clockwise
-// (equivalently, 270 clockwise) - also 224x256-shaped.
-// Both need a DIFFERENT VRAM column for every output pixel in the row, not
-// a fast sequential bit-scan of one column, since `col` now depends on our
-// column axis (x) instead of our row axis (ay) - see Emulator.md.
-// SI_SCREEN_OFFSET_X/Y (display_config.h) shift the image the same way as
-// in the 0/180 branch above. SI_SCALE_MODE scales it the same way too -
-// see that branch's comment for what `display_x`/`display_y` vs `ox`/`oy`
-// mean; here the Y axis may additionally be cropped rather than bordered
-// (SI_ACTIVE_Y_CROP/SI_ACTIVE_Y_LIMIT, display_config.h/above) when
-// SI_DISPLAY_H exceeds FRAME_HEIGHT (SI_SCALE_NONE/SI_SCALE_X only).
+// SI_DISPLAY_ROTATION == 90: output rotated 90 degrees clockwise.
+// SI_DISPLAY_ROTATION == 270: output rotated 90 degrees counter-clockwise.
 static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
     int screen_ay = (int)ay - SI_SCREEN_OFFSET_Y;
     if (screen_ay < (int)SI_ACTIVE_Y_OFFSET || screen_ay >= (int)SI_ACTIVE_Y_LIMIT) {
-        for (unsigned x = 0; x < FRAME_WIDTH; ++x)
-            buf[x] = COLOR_BLACK;
+        memset(buf, 0, FRAME_WIDTH * sizeof(uint16_t));
         return;
     }
     unsigned display_ay = (unsigned)screen_ay - SI_ACTIVE_Y_OFFSET + SI_ACTIVE_Y_CROP;
     unsigned oy = (display_ay * SI_CONTENT_H) / SI_DISPLAY_H;
 
-    for (unsigned x = 0; x < FRAME_WIDTH; ++x) {
-        int screen_x = (int)x - SI_SCREEN_OFFSET_X;
-        if (screen_x < (int)SI_ACTIVE_X_OFFSET || screen_x >= (int)(SI_ACTIVE_X_OFFSET + SI_DISPLAY_W)) {
-            buf[x] = COLOR_BLACK;
-            continue;
-        }
-        unsigned display_x = (unsigned)screen_x - SI_ACTIVE_X_OFFSET;
-        unsigned ox = (display_x * SI_CONTENT_W) / SI_DISPLAY_W;
+    int start_x = SI_SCREEN_OFFSET_X + SI_ACTIVE_X_OFFSET;
+    int end_x = start_x + (int)SI_DISPLAY_W;
+    int clip_start = start_x < 0 ? 0 : (start_x > FRAME_WIDTH ? FRAME_WIDTH : start_x);
+    int clip_end = end_x < 0 ? 0 : (end_x > FRAME_WIDTH ? FRAME_WIDTH : end_x);
+
+    if (clip_start > 0)
+        memset(buf, 0, (size_t)clip_start * sizeof(uint16_t));
+    if (clip_end < FRAME_WIDTH)
+        memset(buf + clip_end, 0, (size_t)(FRAME_WIDTH - clip_end) * sizeof(uint16_t));
+
+    if (clip_start >= clip_end)
+        return;
+
+    uint32_t step_x = ((uint32_t)SI_CONTENT_W << 16) / SI_DISPLAY_W;
+    uint32_t ox_fp = (uint32_t)(clip_start - start_x) * step_x;
+
+    for (int x = clip_start; x < clip_end; ++x) {
+        unsigned ox = ox_fp >> 16;
+        ox_fp += step_x;
+
 #if SI_DISPLAY_ROTATION == 90
         unsigned lx = oy;
         unsigned ly = (SI_ARCADE_HEIGHT - 1) - ox;
@@ -280,9 +295,11 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
         unsigned lx = (SI_ARCADE_WIDTH - 1) - oy;
         unsigned ly = ox;
 #endif
-        apply_mirror(&lx, &ly);
-        uint16_t color = sample_bit(vram, lx, ly) ? lit_pixel_color(ox, SI_ARCADE_HEIGHT) : COLOR_BLACK;
-        buf[x] = apply_scanline(color, lx);
+        unsigned cur_lx = lx, cur_ly = ly;
+        apply_mirror(&cur_lx, &cur_ly);
+
+        uint16_t color = sample_bit(vram, cur_lx, cur_ly) ? lit_pixel_color(ox, SI_ARCADE_HEIGHT) : COLOR_BLACK;
+        buf[x] = apply_scanline(color, cur_lx);
     }
 }
 
@@ -290,7 +307,9 @@ static void render_arcade_row(uint16_t *buf, const uint8_t *vram, unsigned ay) {
 
 void game_init(void) {
     invaders_machine_init(&s_machine);
+    s_machine.sound_write = sound_effects_on_port_write;
     s_mid_screen_fired = false;
+    s_scanline_buf_idx = 0;
 }
 
 const uint16_t *game_get_scanline(unsigned y, unsigned frame_count) {
@@ -311,6 +330,10 @@ const uint16_t *game_get_scanline(unsigned y, unsigned frame_count) {
         s_mid_screen_fired = true;
     }
 
-    render_arcade_row(scanline_arcade, invaders_machine_vram(&s_machine), y);
-    return scanline_arcade;
+    uint16_t *buf = scanline_arcade_bufs[s_scanline_buf_idx];
+    s_scanline_buf_idx = (s_scanline_buf_idx + 1) % SCANLINE_BUF_COUNT;
+
+    render_arcade_row(buf, invaders_machine_vram(&s_machine), y);
+    return buf;
 }
+

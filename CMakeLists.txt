@@ -28,7 +28,7 @@ set(PICO_BOARD waveshare_rp2350_pizero CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(Space_Invader_PICO VERSION 0.3.0 LANGUAGES C CXX ASM)
+project(Space_Invader_PICO VERSION 0.4.0 LANGUAGES C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -63,6 +63,25 @@ add_custom_target(si_generate_rom ALL
         COMMENT "Embedding Space Invaders arcade ROM (roms/) into flash image"
 )
 
+# ----------------------------------------------------------------------------
+# Sound-effect PCM data: same idea as the ROM above, but for the 10 discrete
+# sound-effect files the user supplies locally in sounds/ (not vendored -
+# the real cabinet's sounds came from analog circuitry, not a sample ROM, so
+# there's nothing to extract instead - see sounds/README.md and
+# cmake/generate_sounds.cmake). Missing files get 0-length placeholders so
+# the rest of the project still builds. ALL custom target for the same
+# stale-timestamp reason as si_generate_rom above.
+set(SI_SOUND_DIR ${CMAKE_CURRENT_LIST_DIR}/sounds)
+set(SI_SOUND_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated/sound_data.c)
+add_custom_target(si_generate_sounds ALL
+        COMMAND ${CMAKE_COMMAND}
+                -DSI_SOUND_DIR=${SI_SOUND_DIR}
+                -DSI_SOUND_OUT=${SI_SOUND_GEN}
+                -P ${CMAKE_CURRENT_LIST_DIR}/cmake/generate_sounds.cmake
+        BYPRODUCTS ${SI_SOUND_GEN}
+        COMMENT "Embedding sound-effect PCM data (sounds/) into flash image"
+)
+
 # Add executable. Default name is the project name, version 0.1
 add_executable(Space_Invader_PICO
         src/main.c
@@ -73,11 +92,13 @@ add_executable(Space_Invader_PICO
         src/dvi/tmds_encode_sio.c
         src/dvi/tmds_encode_sio.S
         src/audio/audio_i2s.c
+        src/audio/sound_effects.c
         src/emu/i8080.c
         src/emu/invaders_machine.c
         ${SI_ROM_GEN}
+        ${SI_SOUND_GEN}
 )
-add_dependencies(Space_Invader_PICO si_generate_rom)
+add_dependencies(Space_Invader_PICO si_generate_rom si_generate_sounds)
 
 pico_set_program_name(Space_Invader_PICO "Space_Invader_PICO")
 pico_set_program_version(Space_Invader_PICO "${PROJECT_VERSION}")

@@ -4,16 +4,16 @@
 
 #include "rom_data.h"
 
-static uint8_t mem_read(void *ctx, uint16_t addr) {
+static inline uint8_t mem_read(void *ctx, uint16_t addr) {
     invaders_machine_t *m = (invaders_machine_t *)ctx;
-    if (addr < 0x2000)
+    if (__builtin_expect(addr < 0x2000, 1))
         return space_invaders_rom[addr];
     return m->ram[(addr - 0x2000) & 0x1FFF];
 }
 
-static void mem_write(void *ctx, uint16_t addr, uint8_t value) {
+static inline void mem_write(void *ctx, uint16_t addr, uint8_t value) {
     invaders_machine_t *m = (invaders_machine_t *)ctx;
-    if (addr < 0x2000)
+    if (__builtin_expect(addr < 0x2000, 0))
         return; // ROM: writes silently ignored, matching real hardware
     m->ram[(addr - 0x2000) & 0x1FFF] = value;
 }
@@ -34,11 +34,17 @@ static void io_out(void *ctx, uint8_t port, uint8_t value) {
     switch (port) {
         case 2: m->shift_offset = value & 0x07; break;
         case 4: m->shift_register = (uint16_t)((value << 8) | (m->shift_register >> 8)); break;
-        // Port 3/5: discrete sound-effect trigger bits. Port 6: watchdog
-        // reset strobe. No sound hardware or watchdog is emulated yet
-        // (this pass is CPU core + video only) - writes are accepted and
-        // dropped, matching how real hardware behaves when nothing is
-        // listening on a port.
+        case 3:
+        case 5:
+            // Discrete sound-effect trigger bits - forwarded verbatim to
+            // whoever wired up sound_write (see invaders_machine.h), which
+            // is the only place that knows what each bit means.
+            if (m->sound_write)
+                m->sound_write(m->sound_ctx, port, value);
+            break;
+        // Port 6: watchdog reset strobe - not emulated yet; writes are
+        // accepted and dropped, matching how real hardware behaves when
+        // nothing is listening on a port.
         default: break;
     }
 }
@@ -56,6 +62,9 @@ void invaders_machine_init(invaders_machine_t *m) {
     // IN2 DIP switches: 3 ships (bits0-1 = 00), extra ship at 1500 points
     // (bit3 = 0), tilt idle (bit2 = 0), coin info shown in demo (bit7 = 0).
     m->in2 = 0x00;
+
+    m->sound_write = NULL;
+    m->sound_ctx = NULL;
 
     m->cpu.ctx = m;
     m->cpu.mem_read = mem_read;
