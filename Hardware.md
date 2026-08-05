@@ -56,12 +56,10 @@ driver writeup.
 > must stay on consecutive GPIO numbers (18/19) - `audio_i2s.pio`'s side-set
 > field drives both from one 2-bit value.
 
-### MAX98357A Amplifier Module
+### External Audio Amplifier (Removed)
 
-The amplifier used with this project is a **MAX98357A** breakout (3W into 8ohm,
-I2S digital input, class-D). Its 7-pin header (LRC, BCLK, DIN, GAIN, SD, GND,
-VIN) maps onto the I2S bus above plus power/mode pins that have no RP2350
-signal equivalent:
+> [!NOTE]
+> The external MAX98357A amplifier module and GPIO 20 mute control have been removed from this firmware. Audio is handled digitally / via HDMI TMDS streams. GPIO 18, 19, 20, and 21 are freed.
 
 | MAX98357A Pin | Connects To | Description |
 | :--- | :--- | :--- |

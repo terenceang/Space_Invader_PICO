@@ -149,7 +149,6 @@ target_compile_definitions(Space_Invader_PICO PRIVATE
 )
 
 pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/dvi/dvi_serialiser.pio)
-pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/audio/audio_i2s.pio)
 pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/input/snes_controller.pio)
 
 pico_add_extra_outputs(Space_Invader_PICO)

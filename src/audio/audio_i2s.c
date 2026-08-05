@@ -31,16 +31,6 @@
 // wire up directly. None of these three are used elsewhere in this project
 // (UART0 = GPIO0/1, I2C0 = GPIO6/7, DVI = GPIO32-39 - see Hardware.md's
 // pinout table).
-#define AUDIO_PIN_DATA       21 // DOUT
-#define AUDIO_PIN_CLOCK_BASE 18 // BCLK (GPIO18) / LRCLK (GPIO18+1 = GPIO19)
-
-// MAX98357A SD (shutdown, active-low) pin, driven as a mute/enable control -
-// see Hardware.md's "MAX98357A Amplifier Module" section. Not an I2S signal;
-// just a plain GPIO output.
-#define AUDIO_PIN_MUTE 20
-
-#define AUDIO_PIO_INST pio1 // PIO0 is fully claimed by the DVI engine (src/dvi/)
-
 // ----------------------------------------------------------------------------
 // Sound mixer: AUDIO_MAX_VOICES one-shot voices (Shot/Flash/Invader die/
 // Extended play/Fleet 1-4/UFO hit all share this pool) plus a single
@@ -131,18 +121,8 @@ static void audio_dma_irq_handler(void) {
 }
 
 void audio_i2s_set_mute(bool mute) {
-#if DEBUG_AUDIO_TEST_TONE
-    // Hardware bring-up: keep the amp permanently enabled regardless of what
-    // the real ROM's own attract-mode code does with the port 3 bit 5
-    // AMP-enable line (sound_effects.c drives this live, and the real
-    // hardware clears it during its own boot/attract sequence before a coin
-    // is ever inserted) - otherwise the debug test tone gets silenced by the
-    // game itself a moment after boot, which looks like a hardware fault
-    // but isn't one.
-    mute = false;
-#endif
-    // SD is active-low shutdown: drive it low to mute, high to enable.
-    gpio_put(AUDIO_PIN_MUTE, !mute);
+    // MAX98357A hardware mute disabled - no-op.
+    (void)mute;
 }
 
 #if DEBUG_AUDIO_TEST_TONE
@@ -218,44 +198,6 @@ void audio_i2s_set_sound_loop(sound_id_t sound_id, bool active) {
 }
 
 void audio_i2s_init(void) {
-    gpio_init(AUDIO_PIN_MUTE);
-    gpio_set_dir(AUDIO_PIN_MUTE, GPIO_OUT);
-    audio_i2s_set_mute(false); // enable the amp by default
-
-    PIO pio = AUDIO_PIO_INST;
-    uint sm = pio_claim_unused_sm(pio, true);
-    uint offset = pio_add_program(pio, &audio_i2s_program);
-
-    // 32 BCLK cycles/frame (16 bits x 2 channels), 2 PIO clock cycles/BCLK
-    // cycle (this program's bitloop has one `out` + one `jmp` per bit) - see
-    // audio_i2s.pio.
-    float clkdiv = (float)clock_get_hz(clk_sys) / (SOUND_SAMPLE_RATE_HZ * 32 * 2);
-    audio_i2s_program_init(pio, sm, offset, AUDIO_PIN_DATA, AUDIO_PIN_CLOCK_BASE, clkdiv);
-
-    for (int i = 0; i < 2; ++i)
-        audio_dma_chan[i] = dma_claim_unused_channel(true);
-
-    uint dreq = pio_get_dreq(pio, sm, true);
-    for (int i = 0; i < 2; ++i) {
-        mix_samples(audio_buf[i], AUDIO_BUF_FRAMES); // silence - no voices active yet
-
-        dma_channel_config cfg = dma_channel_get_default_config(audio_dma_chan[i]);
-        channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
-        channel_config_set_read_increment(&cfg, true);
-        channel_config_set_write_increment(&cfg, false);
-        channel_config_set_dreq(&cfg, dreq);
-        // Chain to the other buffer's channel on completion - see
-        // audio_dma_irq_handler(), which resets READ_ADDR back to this
-        // buffer's start on every completion (CHAIN_TO does not do this
-        // automatically - only TRANS_COUNT auto-reloads).
-        channel_config_set_chain_to(&cfg, audio_dma_chan[i ^ 1]);
-        dma_channel_configure(audio_dma_chan[i], &cfg, &pio->txf[sm], audio_buf[i], AUDIO_BUF_FRAMES, false);
-        dma_channel_set_irq1_enabled(audio_dma_chan[i], true);
-    }
-
-    irq_set_exclusive_handler(DMA_IRQ_1, audio_dma_irq_handler);
-    irq_set_enabled(DMA_IRQ_1, true);
-
-    pio_sm_set_enabled(pio, sm, true);
-    dma_channel_start(audio_dma_chan[0]);
+    // MAX98357A & PIO1 hardware initialization removed - audio is handled in software / HDMI TMDS.
+    voice_steal_next = 0;
 }
