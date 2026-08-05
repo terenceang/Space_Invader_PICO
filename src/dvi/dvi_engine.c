@@ -486,23 +486,6 @@ void dvi_engine_start(void) {
 }
 
 static void __dvi_func(dvi_prepare_scanline)(uint32_t *scanbuf) {
-#if DVI_ENABLE_HDMI_AUDIO
-    // Encode audio sample into Data Island buffer if queued
-    hdmi_audio_sample_t sample;
-    if (queue_try_remove(&q_hdmi_audio_samples, &sample)) {
-        hdmi_packet_t audio_pkt;
-        hdmi_build_audio_sample_packet(&audio_pkt, sample.left, sample.right, true);
-        hdmi_encode_data_island(&audio_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
-                                hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
-    } else {
-        // Send Audio Clock Recovery (N/CTS) packet when no new samples
-        hdmi_packet_t acr_pkt;
-        hdmi_build_audio_clock_packet(&acr_pkt, 25200, 6272);
-        hdmi_encode_data_island(&acr_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
-                                hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
-    }
-#endif
-
     uint32_t *tmdsbuf;
     queue_remove_blocking_u32(&q_tmds_free, &tmdsbuf);
     uint words_per_channel = DVI_H_ACTIVE_PIXELS / DVI_SYMBOLS_PER_WORD;
@@ -514,8 +497,11 @@ static void __dvi_func(dvi_prepare_scanline)(uint32_t *scanbuf) {
 
 void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right) {
 #if DVI_ENABLE_HDMI_AUDIO
-    hdmi_audio_sample_t sample = { left, right };
-    queue_try_add(&q_hdmi_audio_samples, &sample);
+    // Pre-encode audio sample packet on Core 0 (off Core 1's scanline encode loop)
+    hdmi_packet_t audio_pkt;
+    hdmi_build_audio_sample_packet(&audio_pkt, left, right, true);
+    hdmi_encode_data_island(&audio_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
+                            hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
 #else
     (void)left;
     (void)right;

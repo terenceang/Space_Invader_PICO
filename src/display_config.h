@@ -45,7 +45,7 @@
 // packet transmission during horizontal blanking for embedded audio over mini-HDMI.
 // Set to 1 to enable HDMI embedded audio, or 0 to turn it off (the default).
 #ifndef DVI_ENABLE_HDMI_AUDIO
-#define DVI_ENABLE_HDMI_AUDIO 0
+#define DVI_ENABLE_HDMI_AUDIO 1
 #endif
 
 // Screen orientation, to match however the physical display is actually

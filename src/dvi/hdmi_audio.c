@@ -1,4 +1,5 @@
 #include "hdmi_audio.h"
+#include "pico.h"
 #include <string.h>
 
 // ----------------------------------------------------------------------------
@@ -21,7 +22,7 @@ const uint16_t terc4_symbol_table[16] = {
     0x2CF, // 0b1100 -> 10 1100 1111
     0x290, // 0b1101 -> 10 1001 0000
     0x2AC, // 0b1110 -> 10 1010 1100
-    0x2BC  // 0b1111 -> 10 1011 1100
+    0x2BC  // 0b1011 -> 10 1011 1100
 };
 
 // ----------------------------------------------------------------------------
@@ -195,9 +196,9 @@ static inline uint32_t pack_dual_tmds(uint16_t sym0, uint16_t sym1) {
     return ((uint32_t)sym0) | (((uint32_t)sym1) << 10);
 }
 
-void hdmi_encode_data_island(const hdmi_packet_t *pkt,
-                             bool hsync, bool vsync,
-                             uint32_t *dst_ch0, uint32_t *dst_ch1, uint32_t *dst_ch2) {
+void __not_in_flash_func(hdmi_encode_data_island)(const hdmi_packet_t *pkt,
+                                                  bool hsync, bool vsync,
+                                                  uint32_t *dst_ch0, uint32_t *dst_ch1, uint32_t *dst_ch2) {
     // 1. Leading Guard Band (2 pixels)
     // Channel 0: 0x2CC, Channel 1: 0x13C, Channel 2: 0x13C
     dst_ch0[0] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH0, HDMI_DATA_ISLAND_GUARD_BAND_CH0);

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "pico.h"
 
 // ----------------------------------------------------------------------------
 // HDMI 1.4 Specification Data Island & Audio Packet Constants
@@ -112,8 +113,8 @@ void hdmi_build_avi_infoframe(hdmi_packet_t *pkt);
  * @param dst_ch1       Output buffer for Channel 1 (Data LSBs, size >= 18 words).
  * @param dst_ch2       Output buffer for Channel 2 (Data MSBs, size >= 18 words).
  */
-void hdmi_encode_data_island(const hdmi_packet_t *pkt,
-                             bool hsync, bool vsync,
-                             uint32_t *dst_ch0, uint32_t *dst_ch1, uint32_t *dst_ch2);
+void __not_in_flash_func(hdmi_encode_data_island)(const hdmi_packet_t *pkt,
+                                                  bool hsync, bool vsync,
+                                                  uint32_t *dst_ch0, uint32_t *dst_ch1, uint32_t *dst_ch2);
 
 #endif // HDMI_AUDIO_H
