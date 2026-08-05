@@ -3,26 +3,31 @@
 #include <string.h>
 
 // ----------------------------------------------------------------------------
-// TERC4 10-bit TMDS symbol lookup table (HDMI 1.4 Spec Section 5.4.2)
-// Maps 4-bit nibble (0..15) to 10-bit TERC4 symbol.
+// TERC4 10-bit TMDS symbol lookup table, HDMI 1.3 Specification Section 5.4.3.
+// Maps 4-bit nibble D[3:0] (0..15) to 10-bit TERC4 symbol - values transcribed
+// directly from the spec's case(D3,D2,D1,D0) table and cross-checked against
+// its own known-good Table 5-6 guard band derivation (nibbles 0xC-0xF, used
+// below for the Channel 0 Data Island guard band). The previous table here
+// didn't match the spec at any index - every Data Island packet this project
+// ever transmitted was encoding invalid TERC4 symbols.
 // ----------------------------------------------------------------------------
 const uint16_t terc4_symbol_table[16] = {
-    0x28C, // 0b0000 -> 10 1000 1100
-    0x24C, // 0b0001 -> 10 0100 1100
-    0x2CC, // 0b0010 -> 10 1100 1100
-    0x2B3, // 0b0011 -> 10 1011 0011
-    0x273, // 0b0100 -> 10 0111 0011
-    0x2F3, // 0b0101 -> 10 1111 0011
-    0x26C, // 0b0110 -> 10 0110 1100
-    0x293, // 0b0111 -> 10 1001 0011
-    0x2B0, // 0b1000 -> 10 1011 0000
-    0x270, // 0b1001 -> 10 0111 0000
-    0x2F0, // 0b1010 -> 10 1111 0000
-    0x24F, // 0b1011 -> 10 0100 1111
-    0x2CF, // 0b1100 -> 10 1100 1111
-    0x290, // 0b1101 -> 10 1001 0000
-    0x2AC, // 0b1110 -> 10 1010 1100
-    0x2BC  // 0b1011 -> 10 1011 1100
+    0x29C, // 0b0000
+    0x263, // 0b0001
+    0x2E4, // 0b0010
+    0x2E2, // 0b0011
+    0x171, // 0b0100
+    0x11E, // 0b0101
+    0x18E, // 0b0110
+    0x13C, // 0b0111
+    0x2CC, // 0b1000
+    0x139, // 0b1001
+    0x19C, // 0b1010
+    0x2C6, // 0b1011
+    0x28E, // 0b1100
+    0x271, // 0b1101
+    0x163, // 0b1110
+    0x2C3  // 0b1111
 };
 
 // ----------------------------------------------------------------------------
@@ -165,6 +170,22 @@ void hdmi_build_audio_infoframe(hdmi_packet_t *pkt, uint8_t channels, uint32_t s
     pkt->subpacket[1].parity = hdmi_bch_ecc_subpacket(pkt->subpacket[1].sb);
 }
 
+void hdmi_build_general_control_packet(hdmi_packet_t *pkt, bool avmute) {
+    memset(pkt, 0, sizeof(hdmi_packet_t));
+
+    // Header: Type 0x03 (General Control Packet), no header-specific data
+    pkt->header.hb0 = HDMI_PACKET_TYPE_GENERAL_CONTROL;
+    pkt->header.hb1 = 0x00;
+    pkt->header.hb2 = 0x00;
+    pkt->header_parity = hdmi_bch_ecc_header(pkt->header.hb0, pkt->header.hb1, pkt->header.hb2);
+
+    // Subpacket 0, sb[0]: SET_AVMUTE (bit 0) / CLEAR_AVMUTE (bit 4). Color
+    // Depth (bits 3:0 of a different nibble) left at 0 ("not indicated") -
+    // this project only ever sends 24-bit-equivalent RGB565, no Deep Color.
+    pkt->subpacket[0].sb[0] = avmute ? HDMI_GCP_SB0_SET_AVMUTE : HDMI_GCP_SB0_CLEAR_AVMUTE;
+    pkt->subpacket[0].parity = hdmi_bch_ecc_subpacket(pkt->subpacket[0].sb);
+}
+
 void hdmi_build_avi_infoframe(hdmi_packet_t *pkt) {
     memset(pkt, 0, sizeof(hdmi_packet_t));
     
@@ -209,11 +230,13 @@ static inline uint32_t pack_dual_tmds(uint16_t sym0, uint16_t sym1) {
 void __not_in_flash_func(hdmi_encode_data_island)(const hdmi_packet_t *pkt,
                                                   bool hsync, bool vsync,
                                                   uint32_t *dst_ch0, uint32_t *dst_ch1, uint32_t *dst_ch2) {
-    // 1. Leading Guard Band (2 pixels)
-    // Channel 0: 0x2CC, Channel 1: 0x13C, Channel 2: 0x13C
-    dst_ch0[0] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH0, HDMI_DATA_ISLAND_GUARD_BAND_CH0);
-    dst_ch1[0] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH1, HDMI_DATA_ISLAND_GUARD_BAND_CH1);
-    dst_ch2[0] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH2, HDMI_DATA_ISLAND_GUARD_BAND_CH2);
+    // 1. Leading Guard Band (2 pixels). Channel 0 is one of TERC4 nibbles
+    // 0xC/0xD/0xE/0xF depending on (vsync,hsync) - HDMI 1.3 Section 5.2.3.3;
+    // Channels 1/2 are the fixed Table 5-6 value.
+    uint16_t gb_ch0 = terc4_symbol_table[0xC | ((vsync ? 1 : 0) << 1) | (hsync ? 1 : 0)];
+    dst_ch0[0] = pack_dual_tmds(gb_ch0, gb_ch0);
+    dst_ch1[0] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2, HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2);
+    dst_ch2[0] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2, HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2);
 
     // Flatten header + parity (32 bits) and subpackets + parity (32 bytes = 256 bits)
     uint32_t header_word = (uint32_t)pkt->header.hb0 |
@@ -246,8 +269,8 @@ void __not_in_flash_func(hdmi_encode_data_island)(const hdmi_packet_t *pkt,
         dst_ch2[p + 1] = pack_dual_tmds(terc4_symbol_table[ch2_d0], terc4_symbol_table[ch2_d1]);
     }
 
-    // 3. Trailing Guard Band (2 pixels)
-    dst_ch0[17] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH0, HDMI_DATA_ISLAND_GUARD_BAND_CH0);
-    dst_ch1[17] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH1, HDMI_DATA_ISLAND_GUARD_BAND_CH1);
-    dst_ch2[17] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH2, HDMI_DATA_ISLAND_GUARD_BAND_CH2);
+    // 3. Trailing Guard Band (2 pixels) - same values as the leading one.
+    dst_ch0[17] = pack_dual_tmds(gb_ch0, gb_ch0);
+    dst_ch1[17] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2, HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2);
+    dst_ch2[17] = pack_dual_tmds(HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2, HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2);
 }

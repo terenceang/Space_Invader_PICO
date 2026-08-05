@@ -94,7 +94,7 @@ enum dvi_line_state { DVI_STATE_FRONT_PORCH = 0, DVI_STATE_SYNC, DVI_STATE_BACK_
 
 #if DVI_ENABLE_HDMI_AUDIO
 #define DVI_SYNC_LANE_CHUNKS   6
-#define DVI_NOSYNC_LANE_CHUNKS 4
+#define DVI_NOSYNC_LANE_CHUNKS 5
 #else
 #define DVI_SYNC_LANE_CHUNKS   DVI_STATE_COUNT // 4: front porch, sync, back porch, active
 #define DVI_NOSYNC_LANE_CHUNKS 2               // 2: blanking (fp+sync+bp combined), active
@@ -253,19 +253,32 @@ static void dvi_setup_scanline_for_active(uint32_t *tmdsbuf, struct dvi_scanline
 
     dma_cb_t *synclist = dvi_lane_from_list(l, TMDS_SYNC_LANE);
 #if DVI_ENABLE_HDMI_AUDIO
-    // 6 chunks for SYNC lane: FP(8w), SYNC(48w), PRE_ISLAND(4w), ISLAND(18w), POST_ISLAND(2w), ACTIVE(320w)
+    // 6 chunks for SYNC lane: FP(8w), SYNC(48w), PREAMBLE(4w), ISLAND(18w), POST_ISLAND(2w), ACTIVE(320w)
     set_data_cb(&synclist[0], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, DVI_H_FRONT_PORCH / DVI_SYMBOLS_PER_WORD, 2, false);
     set_data_cb(&synclist[1], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_on,  DVI_H_SYNC_WIDTH / DVI_SYMBOLS_PER_WORD, 2, false);
     set_data_cb(&synclist[2], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, 4, 2, false);
     set_data_cb(&synclist[3], &dma_cfg[TMDS_SYNC_LANE], hdmi_island_ch0[hdmi_island_active_idx], 18, 0, false);
     set_data_cb(&synclist[4], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, 2, 2, true);
 
+    // Channels 1/2 carry CTL0/CTL1 (ch1) and CTL2/CTL3 (ch2) during Control
+    // Periods. HDMI 1.3 Section 5.2.1.1 requires an 8-pixel Data Island
+    // Preamble - CTL0=1,CTL1=0 (ch1, same pattern a video preamble also
+    // uses) and CTL2=1,CTL3=0 (ch2, this is what actually distinguishes
+    // "a Data Island follows" from "video follows") - immediately before
+    // the leading guard band. Without it, a spec-following sink has no
+    // advance signal that a Data Island (vs. more blanking) is about to
+    // start, and may never attempt to decode the guard band/packet that
+    // follows even though channel 0's own preamble-length gap (synclist[2]
+    // above) was already the right duration.
+    const uint32_t *sym_island_preamble = get_ctrl_sym(true, false);
+
     for (int i = 0; i < N_TMDS_LANES; ++i) {
         if (i == TMDS_SYNC_LANE) continue;
         dma_cb_t *cblist = dvi_lane_from_list(l, i);
-        set_data_cb(&cblist[0], &dma_cfg[i], sym_no_sync, (DVI_H_FRONT_PORCH + DVI_H_SYNC_WIDTH) / DVI_SYMBOLS_PER_WORD + 4, 2, false);
-        set_data_cb(&cblist[1], &dma_cfg[i], i == 1 ? hdmi_island_ch1[hdmi_island_active_idx] : hdmi_island_ch2[hdmi_island_active_idx], 18, 0, false);
-        set_data_cb(&cblist[2], &dma_cfg[i], sym_no_sync, 2, 2, false);
+        set_data_cb(&cblist[0], &dma_cfg[i], sym_no_sync, (DVI_H_FRONT_PORCH + DVI_H_SYNC_WIDTH) / DVI_SYMBOLS_PER_WORD, 2, false);
+        set_data_cb(&cblist[1], &dma_cfg[i], sym_island_preamble, 4, 2, false);
+        set_data_cb(&cblist[2], &dma_cfg[i], i == 1 ? hdmi_island_ch1[hdmi_island_active_idx] : hdmi_island_ch2[hdmi_island_active_idx], 18, 0, false);
+        set_data_cb(&cblist[3], &dma_cfg[i], sym_no_sync, 2, 2, false);
     }
 #else
     set_data_cb(&synclist[0], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, DVI_H_FRONT_PORCH / DVI_SYMBOLS_PER_WORD, 2, false);
@@ -314,8 +327,8 @@ static void __dvi_func(dvi_update_scanline_data_dma)(const uint32_t *tmdsbuf, st
 // re-arms the control channel from this same list.
 static void __dvi_func(dvi_update_hdmi_audio_dma)(struct dvi_scanline_dma_list *l) {
     dvi_lane_from_list(l, TMDS_SYNC_LANE)[3].read_addr = hdmi_island_ch0[hdmi_island_active_idx];
-    dvi_lane_from_list(l, 1)[1].read_addr = hdmi_island_ch1[hdmi_island_active_idx];
-    dvi_lane_from_list(l, 2)[1].read_addr = hdmi_island_ch2[hdmi_island_active_idx];
+    dvi_lane_from_list(l, 1)[2].read_addr = hdmi_island_ch1[hdmi_island_active_idx];
+    dvi_lane_from_list(l, 2)[2].read_addr = hdmi_island_ch2[hdmi_island_active_idx];
 }
 #endif
 
@@ -562,6 +575,16 @@ void dvi_engine_send_hdmi_acr_packet(uint32_t cts, uint32_t n) {
 #else
     (void)cts;
     (void)n;
+#endif
+}
+
+void dvi_engine_send_hdmi_gcp(bool avmute) {
+#if DVI_ENABLE_HDMI_AUDIO
+    hdmi_packet_t pkt;
+    hdmi_build_general_control_packet(&pkt, avmute);
+    dvi_send_hdmi_packet(&pkt);
+#else
+    (void)avmute;
 #endif
 }
 

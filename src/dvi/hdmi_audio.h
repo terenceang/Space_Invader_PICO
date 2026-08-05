@@ -29,10 +29,12 @@
 // TMDS TERC4 Symbols (10-bit symbols for 4-bit data encoding during Data Islands)
 extern const uint16_t terc4_symbol_table[16];
 
-// HDMI Guard Band 10-bit TMDS symbols for Data Island entry and exit
-#define HDMI_DATA_ISLAND_GUARD_BAND_CH0 0x2CC // Channel 0 (Sync + Header LSB)
-#define HDMI_DATA_ISLAND_GUARD_BAND_CH1 0x13C // Channel 1 (Subpacket lower nibbles)
-#define HDMI_DATA_ISLAND_GUARD_BAND_CH2 0x13C // Channel 2 (Subpacket upper nibbles)
+// HDMI Data Island Guard Band symbols, HDMI 1.3 Section 5.2.3.3 / Table 5-6.
+// Channels 1 and 2 are always this fixed 10-bit symbol. Channel 0 is NOT
+// fixed - the spec requires one of TERC4 nibbles 0xC/0xD/0xE/0xF (i.e.
+// terc4_symbol_table[0xC | (vsync<<1) | hsync]), so there is no CH0 constant
+// here - see hdmi_encode_data_island()'s guard band encoding.
+#define HDMI_DATA_ISLAND_GUARD_BAND_CH1_CH2 0x133
 
 // Data Island dimensions
 #define HDMI_DATA_ISLAND_PACKET_PIXELS 32 // 32 clock cycles per packet
@@ -87,8 +89,11 @@ uint8_t hdmi_compute_checksum(const uint8_t *data, size_t len);
 // fixed 25.2MHz TMDS pixel clock (640x480p60) - single source of truth for
 // both dvi_engine_init()'s startup packet and audio_i2s.c's periodic
 // refresh, see hdmi_build_audio_clock_packet below.
+// Verified against HDMI 1.3 Table 7-2 - the 25.2MHz row's 44.1kHz CTS is
+// 28000, not 25200 (which is actually the 48kHz row's CTS at this same
+// clock, Table 7-3 - easy to mix up, and this project previously did).
 #define HDMI_ACR_N_44100HZ   6272
-#define HDMI_ACR_CTS_44100HZ 25200
+#define HDMI_ACR_CTS_44100HZ 28000
 
 /**
  * Builds an Audio Clock Recovery (N/CTS) packet.
@@ -113,6 +118,21 @@ void hdmi_build_audio_infoframe(hdmi_packet_t *pkt, uint8_t channels, uint32_t s
  * Builds an AVI InfoFrame (Type 0x82) describing 640x480 RGB444/RGB565 video timing.
  */
 void hdmi_build_avi_infoframe(hdmi_packet_t *pkt);
+
+// General Control Packet subpacket 0 (SB0) bit positions - confirmed against
+// the Raspberry Pi Linux kernel's vc4/hdmi driver (drivers/gpu/drm/vc4),
+// which sets CLEAR_AVMUTE at this same bit 4 of SB0.
+#define HDMI_GCP_SB0_SET_AVMUTE   0x01 // bit 0
+#define HDMI_GCP_SB0_CLEAR_AVMUTE 0x10 // bit 4
+
+/**
+ * Builds a General Control Packet (Type 0x03) asserting or clearing AVMUTE.
+ * A compliant HDMI source is expected to send this - many real sinks won't
+ * reliably enable audio (and can sit muted indefinitely) without ever
+ * having seen a "clear AVMUTE" GCP, regardless of how correct the audio
+ * sample/ACR/InfoFrame packets are.
+ */
+void hdmi_build_general_control_packet(hdmi_packet_t *pkt, bool avmute);
 
 /**
  * Encodes an HDMI packet into 32-bit packed TMDS words (2 symbols per 32-bit word)

@@ -1,6 +1,8 @@
 #ifndef DVI_ENGINE_H
 #define DVI_ENGINE_H
 
+#include <stdbool.h>
+
 #include "pico/util/queue.h"
 #include "util_queue_u32_inline.h"
 
@@ -54,5 +56,6 @@ void dvi_engine_send_hdmi_audio_samples(const int16_t *left, const int16_t *righ
 void dvi_engine_send_hdmi_avi_infoframe(void);
 void dvi_engine_send_hdmi_audio_infoframe(uint8_t channels, uint32_t sample_rate_hz);
 void dvi_engine_send_hdmi_acr_packet(uint32_t cts, uint32_t n);
+void dvi_engine_send_hdmi_gcp(bool avmute);
 
 #endif

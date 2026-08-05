@@ -44,15 +44,18 @@ static int16_t debug_tone_lut[DEBUG_TONE_LUT_LEN];
 static audio_voice_t debug_voice;
 #endif
 
-// Once per frame, on three well-spaced scanlines, send the AVI/Audio
-// InfoFrame and an Audio Clock Recovery refresh instead of an audio sample
-// packet for that scanline's HDMI Data Island - real HDMI sinks generally
-// require a periodic Audio InfoFrame (and usually an AVI InfoFrame) before
-// they'll enable audio decoding at all, no matter how correct the sample
-// packets are. Spaced apart (rather than consecutive) so at most one of
-// these rows is ever skipped before the next regular row flushes
-// pending_samples below - see its overflow comment.
+// Once per frame, on four well-spaced scanlines, send the AVI/Audio
+// InfoFrame, a General Control Packet clearing AVMUTE, and an Audio Clock
+// Recovery refresh instead of an audio sample packet for that scanline's
+// HDMI Data Island - real HDMI sinks generally require a periodic Audio
+// InfoFrame (and usually an AVI InfoFrame) before they'll enable audio
+// decoding at all, no matter how correct the sample packets are, and many
+// sit muted indefinitely without ever having seen a "clear AVMUTE" GCP.
+// Spaced apart (rather than consecutive) so at most one of these rows is
+// ever skipped before the next regular row flushes pending_samples below -
+// see its overflow comment.
 #define HDMI_AVI_INFOFRAME_ROW   0
+#define HDMI_GCP_ROW             40
 #define HDMI_AUDIO_INFOFRAME_ROW 80
 #define HDMI_ACR_REFRESH_ROW     160
 
@@ -116,6 +119,8 @@ void audio_i2s_step_scanline(void) {
 
     if (scanline_in_frame == HDMI_AVI_INFOFRAME_ROW) {
         dvi_engine_send_hdmi_avi_infoframe();
+    } else if (scanline_in_frame == HDMI_GCP_ROW) {
+        dvi_engine_send_hdmi_gcp(false); // clear AVMUTE - this project never intentionally mutes
     } else if (scanline_in_frame == HDMI_AUDIO_INFOFRAME_ROW) {
         dvi_engine_send_hdmi_audio_infoframe(2, 44100);
     } else if (scanline_in_frame == HDMI_ACR_REFRESH_ROW) {
