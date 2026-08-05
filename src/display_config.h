@@ -14,7 +14,7 @@
 // pattern (testcard.c) for DEBUG_TESTCARD_SECONDS before handing off to the
 // game. Set to 0 to skip the test card and boot straight into the game.
 #ifndef DEBUG_TESTCARD
-#define DEBUG_TESTCARD 0
+#define DEBUG_TESTCARD 1
 #endif
 #define DEBUG_TESTCARD_SECONDS 5
 
@@ -26,7 +26,7 @@
 // supplied yet. Set to 0 (the default) once the hardware's confirmed
 // working, so it doesn't play over real game sound.
 #ifndef DEBUG_AUDIO_TEST_TONE
-#define DEBUG_AUDIO_TEST_TONE 0
+#define DEBUG_AUDIO_TEST_TONE 1
 #endif
 
 // Debug audio-only boot mode: skips DVI/game entirely at boot (no
@@ -43,8 +43,9 @@
 
 // HDMI Embedded Audio in TMDS (Experimental): enables HDMI Data Island & TERC4
 // packet transmission during horizontal blanking for embedded audio over mini-HDMI.
+// Set to 1 to enable HDMI embedded audio, or 0 to turn it off (the default).
 #ifndef DVI_ENABLE_HDMI_AUDIO
-#define DVI_ENABLE_HDMI_AUDIO 0
+#define DVI_ENABLE_HDMI_AUDIO 1
 #endif
 
 // Screen orientation, to match however the physical display is actually

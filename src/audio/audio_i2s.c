@@ -22,6 +22,7 @@
 #include "audio_i2s.pio.h"
 
 #include "audio_i2s.h"
+#include "dvi_engine.h"
 
 // ----------------------------------------------------------------------------
 // Board wiring - matches a real Raspberry Pi's I2S pin positions (GPIO18
@@ -117,6 +118,50 @@ static void audio_dma_irq_handler(void) {
             mix_samples(audio_buf[i], AUDIO_BUF_FRAMES);
             dma_channel_set_read_addr(audio_dma_chan[i], audio_buf[i], false);
         }
+    }
+}
+
+void audio_i2s_step_scanline(void) {
+    // Pace audio sample generation to 44.1kHz (735 samples / 525 scanlines per frame)
+    static uint32_t sample_acc = 0;
+    sample_acc += 735;
+    uint32_t samples_to_gen = sample_acc / 525;
+    sample_acc %= 525;
+
+    for (uint32_t i = 0; i < samples_to_gen; ++i) {
+        int32_t mix = 0;
+
+        if (loop_voice.active) {
+            mix += loop_voice.data[loop_voice.pos];
+            if (++loop_voice.pos >= loop_voice.len)
+                loop_voice.pos = 0;
+        }
+
+#if DEBUG_AUDIO_TEST_TONE
+        if (debug_voice.active) {
+            mix += debug_voice.data[debug_voice.pos];
+            if (++debug_voice.pos >= debug_voice.len)
+                debug_voice.pos = 0;
+        }
+#endif
+
+        for (unsigned v = 0; v < AUDIO_MAX_VOICES; ++v) {
+            if (!voices[v].active)
+                continue;
+            mix += voices[v].data[voices[v].pos];
+            if (++voices[v].pos >= voices[v].len)
+                voices[v].active = false;
+        }
+
+        mix = (mix * 60) / 100;
+
+        if (mix > INT16_MAX)
+            mix = INT16_MAX;
+        else if (mix < INT16_MIN)
+            mix = INT16_MIN;
+        int16_t sample = (int16_t)mix;
+
+        dvi_engine_send_hdmi_audio_sample(sample, sample);
     }
 }
 

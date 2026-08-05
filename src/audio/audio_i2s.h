@@ -31,6 +31,9 @@
 // clock).
 void audio_i2s_init(void);
 
+// Steps the software audio mixer per scanline (~1.4 samples) and feeds the sample stream.
+void audio_i2s_step_scanline(void);
+
 // Drives the MAX98357A's SD (shutdown, active-low) pin - see Hardware.md's
 // "MAX98357A Amplifier Module" section. mute=true shuts the amp down
 // (silent, low power); mute=false enables it. audio_i2s_init() enables the

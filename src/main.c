@@ -103,15 +103,14 @@ int main() {
     // Keep debug/status output out of this loop entirely.
     while (true) {
 #if DEBUG_TESTCARD
-        bool show_testcard = frame_count < testcard_frames;
+        bool show_testcard = true; // Keep test card active permanently for audio bring-up
 #endif
         for (unsigned y = 0; y < FRAME_HEIGHT; ++y) {
+            audio_i2s_step_scanline();
+
             const uint16_t *scanline;
 #if DEBUG_TESTCARD
-            if (show_testcard)
-                scanline = testcard_get_scanline(y, frame_count);
-            else
-                scanline = game_get_scanline(y, frame_count - testcard_frames);
+            scanline = testcard_get_scanline(y, frame_count);
 #else
             scanline = game_get_scanline(y, frame_count);
 #endif

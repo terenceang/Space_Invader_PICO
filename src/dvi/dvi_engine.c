@@ -92,8 +92,13 @@ static_assert(__builtin_offsetof(dma_cb_t, c.ctrl) == __builtin_offsetof(dma_cha
 
 enum dvi_line_state { DVI_STATE_FRONT_PORCH = 0, DVI_STATE_SYNC, DVI_STATE_BACK_PORCH, DVI_STATE_ACTIVE, DVI_STATE_COUNT };
 
+#if DVI_ENABLE_HDMI_AUDIO
+#define DVI_SYNC_LANE_CHUNKS   6
+#define DVI_NOSYNC_LANE_CHUNKS 4
+#else
 #define DVI_SYNC_LANE_CHUNKS   DVI_STATE_COUNT // 4: front porch, sync, back porch, active
 #define DVI_NOSYNC_LANE_CHUNKS 2               // 2: blanking (fp+sync+bp combined), active
+#endif
 
 struct dvi_scanline_dma_list {
     dma_cb_t l0[DVI_SYNC_LANE_CHUNKS];
@@ -254,16 +259,36 @@ static void dvi_setup_scanline_for_active(uint32_t *tmdsbuf, struct dvi_scanline
     const uint32_t *sym_no_sync = get_ctrl_sym(false, false);
 
     dma_cb_t *synclist = dvi_lane_from_list(l, TMDS_SYNC_LANE);
+#if DVI_ENABLE_HDMI_AUDIO
+    // 6 chunks for SYNC lane: FP(8w), SYNC(48w), PRE_ISLAND(4w), ISLAND(18w), POST_ISLAND(2w), ACTIVE(320w)
+    set_data_cb(&synclist[0], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, DVI_H_FRONT_PORCH / DVI_SYMBOLS_PER_WORD, 2, false);
+    set_data_cb(&synclist[1], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_on,  DVI_H_SYNC_WIDTH / DVI_SYMBOLS_PER_WORD, 2, false);
+    set_data_cb(&synclist[2], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, 4, 2, false);
+    set_data_cb(&synclist[3], &dma_cfg[TMDS_SYNC_LANE], hdmi_island_ch0, 18, 0, false);
+    set_data_cb(&synclist[4], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, 2, 2, true);
+
+    for (int i = 0; i < N_TMDS_LANES; ++i) {
+        if (i == TMDS_SYNC_LANE) continue;
+        dma_cb_t *cblist = dvi_lane_from_list(l, i);
+        set_data_cb(&cblist[0], &dma_cfg[i], sym_no_sync, (DVI_H_FRONT_PORCH + DVI_H_SYNC_WIDTH) / DVI_SYMBOLS_PER_WORD + 4, 2, false);
+        set_data_cb(&cblist[1], &dma_cfg[i], i == 1 ? hdmi_island_ch1 : hdmi_island_ch2, 18, 0, false);
+        set_data_cb(&cblist[2], &dma_cfg[i], sym_no_sync, 2, 2, false);
+    }
+#else
     set_data_cb(&synclist[0], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, DVI_H_FRONT_PORCH / DVI_SYMBOLS_PER_WORD, 2, false);
     set_data_cb(&synclist[1], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_on, DVI_H_SYNC_WIDTH / DVI_SYMBOLS_PER_WORD, 2, false);
     set_data_cb(&synclist[2], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, DVI_H_BACK_PORCH / DVI_SYMBOLS_PER_WORD, 2, true);
 
     for (int i = 0; i < N_TMDS_LANES; ++i) {
+        if (i == TMDS_SYNC_LANE) continue;
         dma_cb_t *cblist = dvi_lane_from_list(l, i);
-        if (i != TMDS_SYNC_LANE) {
-            set_data_cb(&cblist[0], &dma_cfg[i], sym_no_sync,
-                        (DVI_H_FRONT_PORCH + DVI_H_SYNC_WIDTH + DVI_H_BACK_PORCH) / DVI_SYMBOLS_PER_WORD, 2, false);
-        }
+        set_data_cb(&cblist[0], &dma_cfg[i], sym_no_sync,
+                    (DVI_H_FRONT_PORCH + DVI_H_SYNC_WIDTH + DVI_H_BACK_PORCH) / DVI_SYMBOLS_PER_WORD, 2, false);
+    }
+#endif
+
+    for (int i = 0; i < N_TMDS_LANES; ++i) {
+        dma_cb_t *cblist = dvi_lane_from_list(l, i);
         int target_block = i == TMDS_SYNC_LANE ? DVI_SYNC_LANE_CHUNKS - 1 : DVI_NOSYNC_LANE_CHUNKS - 1;
         if (tmdsbuf) {
             set_data_cb(&cblist[target_block], &dma_cfg[i], tmdsbuf + i * (DVI_H_ACTIVE_PIXELS / DVI_SYMBOLS_PER_WORD),
@@ -279,9 +304,9 @@ static void __dvi_func(dvi_update_scanline_data_dma)(const uint32_t *tmdsbuf, st
     for (int i = 0; i < N_TMDS_LANES; ++i) {
         const uint32_t *lane_tmdsbuf = tmdsbuf + i * (DVI_H_ACTIVE_PIXELS / DVI_SYMBOLS_PER_WORD);
         if (i == TMDS_SYNC_LANE)
-            dvi_lane_from_list(l, i)[3].read_addr = lane_tmdsbuf;
+            dvi_lane_from_list(l, i)[DVI_SYNC_LANE_CHUNKS - 1].read_addr = lane_tmdsbuf;
         else
-            dvi_lane_from_list(l, i)[1].read_addr = lane_tmdsbuf;
+            dvi_lane_from_list(l, i)[DVI_NOSYNC_LANE_CHUNKS - 1].read_addr = lane_tmdsbuf;
     }
 }
 
@@ -461,6 +486,23 @@ void dvi_engine_start(void) {
 }
 
 static void __dvi_func(dvi_prepare_scanline)(uint32_t *scanbuf) {
+#if DVI_ENABLE_HDMI_AUDIO
+    // Encode audio sample into Data Island buffer if queued
+    hdmi_audio_sample_t sample;
+    if (queue_try_remove(&q_hdmi_audio_samples, &sample)) {
+        hdmi_packet_t audio_pkt;
+        hdmi_build_audio_sample_packet(&audio_pkt, sample.left, sample.right, true);
+        hdmi_encode_data_island(&audio_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
+                                hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
+    } else {
+        // Send Audio Clock Recovery (N/CTS) packet when no new samples
+        hdmi_packet_t acr_pkt;
+        hdmi_build_audio_clock_packet(&acr_pkt, 25200, 6272);
+        hdmi_encode_data_island(&acr_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
+                                hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
+    }
+#endif
+
     uint32_t *tmdsbuf;
     queue_remove_blocking_u32(&q_tmds_free, &tmdsbuf);
     uint words_per_channel = DVI_H_ACTIVE_PIXELS / DVI_SYMBOLS_PER_WORD;
@@ -470,6 +512,16 @@ static void __dvi_func(dvi_prepare_scanline)(uint32_t *scanbuf) {
     queue_add_blocking_u32(&q_tmds_valid, &tmdsbuf);
 }
 
+void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right) {
+#if DVI_ENABLE_HDMI_AUDIO
+    hdmi_audio_sample_t sample = { left, right };
+    queue_try_add(&q_hdmi_audio_samples, &sample);
+#else
+    (void)left;
+    (void)right;
+#endif
+}
+
 void __dvi_func(dvi_engine_encode_loop)(void) {
     while (1) {
         uint32_t *scanbuf;
@@ -477,9 +529,4 @@ void __dvi_func(dvi_engine_encode_loop)(void) {
         dvi_prepare_scanline(scanbuf);
         queue_add_blocking_u32(&dvi_q_colour_free, &scanbuf);
     }
-}
-
-void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right) {
-    hdmi_audio_sample_t sample = { left, right };
-    queue_try_add(&q_hdmi_audio_samples, &sample);
 }
