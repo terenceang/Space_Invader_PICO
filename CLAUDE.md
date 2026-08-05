@@ -10,11 +10,14 @@ RP2350-PiZero board, written in C against the Raspberry Pi Pico SDK, driving DVI
 output over the board's mini-HDMI connector. It runs the *actual* arcade ROM, not a
 reimplementation of the game logic - see `Emulator.md`. **Status: early stage** - the DVI
 video pipeline (`src/dvi/`, `src/dvi_display.*`), the CPU core + video output
-(`src/emu/`, `src/game.c`), and I2S sound-effect playback (`src/audio/`, driven by
-the emulated machine's own port 3/5 writes) are built and working - though real
-audio depends on you supplying sample files, see `sounds/README.md`. Input
-(joystick/fire) isn't wired up yet, so the ROM currently just runs its own
-attract-mode loop. See the Roadmap in `README.md`.
+(`src/emu/`, `src/game.c`), SNES-controller input (`src/input/`, mapped to the
+emulated machine's coin/start/joystick/fire inputs), and sound-effect playback
+(`src/audio/`, driven by the emulated machine's own port 3/5 writes, embedded into
+the mini-HDMI connector's HDMI Data Islands by `src/dvi/hdmi_audio.c` rather than
+physical I2S hardware - see `DVI_ENABLE_HDMI_AUDIO` in `src/display_config.h`) are
+built and working, though real audio depends on you supplying sample files (see
+`sounds/README.md`) and embedded-HDMI-audio playback specifically still needs
+verification against real display hardware. See the Roadmap in `README.md`.
 
 **The real arcade ROM is required and is not in this repo** (Taito's copyrighted work -
 see `roms/README.md`). Without it in `roms/`, the build substitutes a zero-filled
@@ -184,8 +187,8 @@ has started.
 | `src/dvi/dvi_serialiser.pio` | PIO program shifting TMDS symbols out to GPIO (trimmed from the vendored version) |
 | `src/dvi/tmds_encode_sio.c` / `.h` / `.S` | SIO hardware TMDS encoder wrapper for this board's exact 16bpp/hdouble config |
 | `src/dvi/util_queue_u32_inline.h` | Generic pico_util queue-of-pointers helper, copied so `src/dvi/` has no dependency on the vendored library |
-| `src/audio/audio_i2s.c` / `.h` | I2S audio output driver (PIO1 + ping-pong DMA on `DMA_IRQ_1`) - mixes one-shot + looping sound-effect voices, drives the MAX98357A's mute pin |
-| `src/audio/audio_i2s.pio` | PIO program generating I2S BCLK/LRCLK/DATA from a 32-bit-per-stereo-frame FIFO |
+| `src/dvi/hdmi_audio.c` / `.h` | HDMI Data Island packet builders (ACR, Audio Sample, AVI/Audio InfoFrame) and TERC4 TMDS encoding for embedded audio over the mini-HDMI connector |
+| `src/audio/audio_i2s.c` / `.h` | Software audio mixer (no physical I2S hardware) - mixes one-shot + looping sound-effect voices into a mono PCM stream and schedules it, plus periodic InfoFrames/ACR, onto the DVI engine's HDMI Data Island transport |
 | `src/audio/sound_effects.c` / `.h` | Decodes the real cabinet's port 3/5 sound-effect bits (UFO/Shot/Flash/Invader die/Extended play/AMP-enable, fleet movement x4/UFO hit) into `audio_i2s_*` calls |
 | `src/audio/sound_data.h` | `sound_id_t` enum + `sound_sample_t`/`sound_table[]` declarations for the embedded PCM data |
 | `sounds/` | User-supplied sound-effect PCM files go here (gitignored, not vendored - see Emulator.md's "Sound effects" section for why there's no ROM to extract these from) |

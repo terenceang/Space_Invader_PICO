@@ -149,14 +149,6 @@ queue_t dvi_q_colour_free;
 static queue_t q_tmds_valid;
 static queue_t q_tmds_free;
 
-typedef struct {
-    int16_t left;
-    int16_t right;
-} hdmi_audio_sample_t;
-
-#define HDMI_AUDIO_QUEUE_DEPTH 64
-static queue_t q_hdmi_audio_samples;
-
 static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch0[2][18];
 static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch1[2][18];
 static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch2[2][18];
@@ -311,6 +303,22 @@ static void __dvi_func(dvi_update_scanline_data_dma)(const uint32_t *tmdsbuf, st
     }
 }
 
+#if DVI_ENABLE_HDMI_AUDIO
+// dvi_setup_scanline_for_active() bakes the Data Island chunk's read_addr to
+// whichever hdmi_island_active_idx buffer was current at init time, and
+// never touches it again - without this, dvi_engine_send_hdmi_*() below
+// could flip hdmi_island_active_idx all day and the DMA would keep
+// retransmitting whatever was in the buffer at boot forever. Mirrors
+// dvi_update_scanline_data_dma()'s patch-the-baked-list pattern, just for
+// the audio chunk instead of the video chunk. Must run before load_dma_op()
+// re-arms the control channel from this same list.
+static void __dvi_func(dvi_update_hdmi_audio_dma)(struct dvi_scanline_dma_list *l) {
+    dvi_lane_from_list(l, TMDS_SYNC_LANE)[3].read_addr = hdmi_island_ch0[hdmi_island_active_idx];
+    dvi_lane_from_list(l, 1)[1].read_addr = hdmi_island_ch1[hdmi_island_active_idx];
+    dvi_lane_from_list(l, 2)[1].read_addr = hdmi_island_ch2[hdmi_island_active_idx];
+}
+#endif
+
 // ----------------------------------------------------------------------------
 // Hot path: DMA IRQ handler + vertical timing FSM
 
@@ -380,6 +388,9 @@ static void __dvi_func(dvi_dma_irq_handler)(void) {
 
     switch (v_state) {
         case DVI_STATE_ACTIVE:
+#if DVI_ENABLE_HDMI_AUDIO
+            dvi_update_hdmi_audio_dma(tmdsbuf ? &dma_list_active : &dma_list_error);
+#endif
             if (tmdsbuf) {
                 dvi_update_scanline_data_dma(tmdsbuf, &dma_list_active);
                 load_dma_op(&dma_list_active);
@@ -441,11 +452,10 @@ void dvi_engine_init(void) {
     queue_init(&q_tmds_free, sizeof(void *), DVI_QUEUE_DEPTH);
     queue_init(&dvi_q_colour_valid, sizeof(void *), DVI_QUEUE_DEPTH);
     queue_init(&dvi_q_colour_free, sizeof(void *), DVI_QUEUE_DEPTH);
-    queue_init(&q_hdmi_audio_samples, sizeof(hdmi_audio_sample_t), HDMI_AUDIO_QUEUE_DEPTH);
 
-    // Pre-encode initial Audio Clock Recovery packet into both double buffers (N=6272, CTS=25200 for 44.1kHz @ 25.2MHz pixel clock)
+    // Pre-encode initial Audio Clock Recovery packet into both double buffers
     hdmi_packet_t acr_pkt;
-    hdmi_build_audio_clock_packet(&acr_pkt, 25200, 6272);
+    hdmi_build_audio_clock_packet(&acr_pkt, HDMI_ACR_CTS_44100HZ, HDMI_ACR_N_44100HZ);
     for (int buf = 0; buf < 2; buf++) {
         hdmi_encode_data_island(&acr_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
                                 hdmi_island_ch0[buf], hdmi_island_ch1[buf], hdmi_island_ch2[buf]);
@@ -498,19 +508,60 @@ static void __dvi_func(dvi_prepare_scanline)(uint32_t *scanbuf) {
     queue_add_blocking_u32(&q_tmds_valid, &tmdsbuf);
 }
 
-void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right) {
 #if DVI_ENABLE_HDMI_AUDIO
+// Encodes pkt into the currently-inactive island buffer and flips
+// hdmi_island_active_idx to make it the next one transmitted - see
+// dvi_update_hdmi_audio_dma() above, which is what actually notices the
+// flip on the DMA side.
+static void __dvi_func(dvi_send_hdmi_packet)(const hdmi_packet_t *pkt) {
     uint write_idx = 1 - hdmi_island_active_idx;
-    hdmi_packet_t audio_pkt;
-    hdmi_build_audio_sample_packet(&audio_pkt, left, right, true);
-    hdmi_encode_data_island(&audio_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
+    hdmi_encode_data_island(pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
                             hdmi_island_ch0[write_idx],
                             hdmi_island_ch1[write_idx],
                             hdmi_island_ch2[write_idx]);
     hdmi_island_active_idx = write_idx;
+}
+#endif
+
+void dvi_engine_send_hdmi_audio_samples(const int16_t *left, const int16_t *right, unsigned count) {
+#if DVI_ENABLE_HDMI_AUDIO
+    hdmi_packet_t pkt;
+    hdmi_build_audio_sample_packet(&pkt, left, right, count);
+    dvi_send_hdmi_packet(&pkt);
 #else
     (void)left;
     (void)right;
+    (void)count;
+#endif
+}
+
+void dvi_engine_send_hdmi_avi_infoframe(void) {
+#if DVI_ENABLE_HDMI_AUDIO
+    hdmi_packet_t pkt;
+    hdmi_build_avi_infoframe(&pkt);
+    dvi_send_hdmi_packet(&pkt);
+#endif
+}
+
+void dvi_engine_send_hdmi_audio_infoframe(uint8_t channels, uint32_t sample_rate_hz) {
+#if DVI_ENABLE_HDMI_AUDIO
+    hdmi_packet_t pkt;
+    hdmi_build_audio_infoframe(&pkt, channels, sample_rate_hz);
+    dvi_send_hdmi_packet(&pkt);
+#else
+    (void)channels;
+    (void)sample_rate_hz;
+#endif
+}
+
+void dvi_engine_send_hdmi_acr_packet(uint32_t cts, uint32_t n) {
+#if DVI_ENABLE_HDMI_AUDIO
+    hdmi_packet_t pkt;
+    hdmi_build_audio_clock_packet(&pkt, cts, n);
+    dvi_send_hdmi_packet(&pkt);
+#else
+    (void)cts;
+    (void)n;
 #endif
 }
 

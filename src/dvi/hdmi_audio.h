@@ -67,12 +67,14 @@ typedef struct {
 // ----------------------------------------------------------------------------
 
 /**
- * Computes BCH(8,5) parity for HDMI Packet Header byte.
+ * Placeholder parity byte for the HDMI Packet Header, computed over its 3
+ * bytes - NOT the real HDMI BCH(8,5) code, see the .c file's note.
  */
 uint8_t hdmi_bch_ecc_header(uint8_t hb0, uint8_t hb1, uint8_t hb2);
 
 /**
- * Computes BCH(32,24) parity for a 7-byte HDMI subpacket.
+ * Placeholder parity byte for a 7-byte HDMI subpacket - NOT the real HDMI
+ * BCH(32,24) code, see the .c file's note.
  */
 uint8_t hdmi_bch_ecc_subpacket(const uint8_t subpacket[7]);
 
@@ -81,6 +83,13 @@ uint8_t hdmi_bch_ecc_subpacket(const uint8_t subpacket[7]);
  */
 uint8_t hdmi_compute_checksum(const uint8_t *data, size_t len);
 
+// Recommended Audio Clock Recovery N/CTS for 44.1kHz audio at this board's
+// fixed 25.2MHz TMDS pixel clock (640x480p60) - single source of truth for
+// both dvi_engine_init()'s startup packet and audio_i2s.c's periodic
+// refresh, see hdmi_build_audio_clock_packet below.
+#define HDMI_ACR_N_44100HZ   6272
+#define HDMI_ACR_CTS_44100HZ 25200
+
 /**
  * Builds an Audio Clock Recovery (N/CTS) packet.
  * Recommended N values: 6272 for 44.1 kHz, 4096 for 32 kHz, 6144 for 48 kHz (at 25.2 MHz pixel clock).
@@ -88,9 +97,12 @@ uint8_t hdmi_compute_checksum(const uint8_t *data, size_t len);
 void hdmi_build_audio_clock_packet(hdmi_packet_t *pkt, uint32_t cts, uint32_t n);
 
 /**
- * Builds a 2-channel 16-bit L-PCM Audio Sample Packet (contains 1 stereo sample pair in subpacket 0).
+ * Builds a 2-channel 16-bit L-PCM Audio Sample Packet, carrying up to 4 stereo
+ * sample pairs (one per subpacket - the packet's full capacity per HDMI 1.4
+ * section 5.3.2). count may be 0..4; subpackets beyond count are marked
+ * not-present. left[]/right[] must have at least count elements.
  */
-void hdmi_build_audio_sample_packet(hdmi_packet_t *pkt, int16_t left_sample, int16_t right_sample, bool sample_present);
+void hdmi_build_audio_sample_packet(hdmi_packet_t *pkt, const int16_t *left, const int16_t *right, unsigned count);
 
 /**
  * Builds an Audio InfoFrame (Type 0x84) describing 2-channel L-PCM audio capabilities.

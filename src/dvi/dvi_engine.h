@@ -40,7 +40,19 @@ void dvi_engine_start(void);
 // dvi_q_colour_free. Never returns, but still services the DMA IRQ.
 void dvi_engine_encode_loop(void);
 
-// Sends/queues a 16-bit stereo PCM audio sample pair for transmission over HDMI Data Islands.
-void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right);
+// Encodes an Audio Sample Packet carrying 0-4 16-bit stereo PCM sample pairs
+// (one per Data Island subpacket - the packet's full capacity) and makes it
+// the next HDMI Data Island transmitted during active-video horizontal
+// blanking. left[]/right[] must have at least count elements; count > 4 is
+// clamped. A no-op if DVI_ENABLE_HDMI_AUDIO is 0.
+void dvi_engine_send_hdmi_audio_samples(const int16_t *left, const int16_t *right, unsigned count);
+
+// Same transmission mechanism as dvi_engine_send_hdmi_audio_samples(), but
+// for the InfoFrame/Audio Clock Recovery packets a real HDMI sink expects
+// periodically - see audio_i2s_step_scanline()'s scheduling of these across
+// each frame. A no-op if DVI_ENABLE_HDMI_AUDIO is 0.
+void dvi_engine_send_hdmi_avi_infoframe(void);
+void dvi_engine_send_hdmi_audio_infoframe(uint8_t channels, uint32_t sample_rate_hz);
+void dvi_engine_send_hdmi_acr_packet(uint32_t cts, uint32_t n);
 
 #endif

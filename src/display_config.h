@@ -20,25 +20,12 @@
 
 // Debug audio test tone: at boot, audio_i2s.c plays a continuous ~441Hz
 // tone on a dedicated debug voice, completely separate from real
-// sound-effect playback (see audio_i2s.c) - for verifying the I2S signal
-// path (pins, PIO timing, DMA hand-off, MAX98357A wiring/mute pin) against
-// a speaker/scope, independent of whether any sounds/*.pcm files have been
-// supplied yet. Set to 0 (the default) once the hardware's confirmed
-// working, so it doesn't play over real game sound.
+// sound-effect playback (see audio_i2s.c) - for verifying the HDMI embedded
+// audio path (Data Island transmission, receiver decoding) independent of
+// whether any sounds/*.pcm files have been supplied yet. Set to 0 (the
+// default) once confirmed working, so it doesn't play over real game sound.
 #ifndef DEBUG_AUDIO_TEST_TONE
 #define DEBUG_AUDIO_TEST_TONE 1
-#endif
-
-// Debug audio-only boot mode: skips DVI/game entirely at boot (no
-// dvi_display_init(), no game_init(), no Core 1 launch, no 252MHz
-// overclock - the system clock stays at its normal default) and brings up
-// nothing but the I2S audio subsystem, then idles forever. Use this to test
-// the audio hardware completely isolated from the DVI engine's own PIO/DMA
-// traffic and clock, and from the emulated machine's port 3/5 writes -
-// see main.c. Combine with DEBUG_AUDIO_TEST_TONE above to actually hear
-// something in this mode.
-#ifndef DEBUG_AUDIO_ONLY
-#define DEBUG_AUDIO_ONLY 0
 #endif
 
 // HDMI Embedded Audio in TMDS (Experimental): enables HDMI Data Island & TERC4

@@ -49,8 +49,9 @@ void sound_effects_on_port_write(void *ctx, uint8_t port, uint8_t value) {
         // UFO is level-triggered (loops for as long as the bit stays set),
         // unlike every other bit here.
         audio_i2s_set_sound_loop(SOUND_UFO, (value & PORT3_BIT_UFO) != 0);
-        // Real hardware's AMP-enable relay, wired to the MAX98357A's SD pin
-        // on this board (see Hardware.md's "MAX98357A Amplifier Module").
+        // Real hardware's AMP-enable relay - no physical amp on this board
+        // (audio_i2s_set_mute() is a no-op), kept for parity with the real
+        // port 3 bit in case a future output stage needs it.
         audio_i2s_set_mute((value & PORT3_BIT_AMP_ENABLE) == 0);
         prev_port3 = value;
         break;

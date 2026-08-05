@@ -1,7 +1,8 @@
-// I2S audio output driver - PIO1 + ping-pong DMA, mixing sound-effect
-// playback triggered by the emulated machine's port 3/5 writes (see
-// sound_effects.c). See audio_i2s.h for the driver overview and
-// Hardware.md for the pin choice.
+// Software audio mixer feeding HDMI embedded audio (src/dvi/hdmi_audio.c,
+// src/dvi/dvi_engine.c) - mixes sound-effect playback triggered by the
+// emulated machine's port 3/5 writes (see sound_effects.c) into a mono PCM
+// stream, transmitted over the mini-HDMI connector's TMDS Data Islands
+// rather than a physical I2S DAC. See audio_i2s.h for the driver overview.
 
 #include <stdint.h>
 
@@ -11,27 +12,12 @@
 #include <math.h>
 #endif
 
-#include "pico/stdlib.h"
-#include "hardware/clocks.h"
-#include "hardware/dma.h"
-#include "hardware/gpio.h"
-#include "hardware/irq.h"
-#include "hardware/pio.h"
 #include "hardware/sync.h"
-
-#include "audio_i2s.pio.h"
 
 #include "audio_i2s.h"
 #include "dvi_engine.h"
+#include "hdmi_audio.h"
 
-// ----------------------------------------------------------------------------
-// Board wiring - matches a real Raspberry Pi's I2S pin positions (GPIO18
-// BCLK / GPIO19 LRCLK / GPIO21 DOUT) on this board's Pi-compatible 40-pin
-// header (confirmed against the official schematic - see Hardware.md), so
-// off-the-shelf I2S DAC HATs (PCM5102/UDA1334A/MAX98357A/HiFiBerry DAC, etc)
-// wire up directly. None of these three are used elsewhere in this project
-// (UART0 = GPIO0/1, I2C0 = GPIO6/7, DVI = GPIO32-39 - see Hardware.md's
-// pinout table).
 // ----------------------------------------------------------------------------
 // Sound mixer: AUDIO_MAX_VOICES one-shot voices (Shot/Flash/Invader die/
 // Extended play/Fleet 1-4/UFO hit all share this pool) plus a single
@@ -58,18 +44,34 @@ static int16_t debug_tone_lut[DEBUG_TONE_LUT_LEN];
 static audio_voice_t debug_voice;
 #endif
 
-// Ping-pong sample buffers: 256 stereo frames (~5.8ms @ 44.1kHz) each, which
-// is the refill deadline mix_samples() has to beat from the DMA IRQ -
-// trivially cheap for a handful of table lookups and additions per frame.
-#define AUDIO_BUF_FRAMES 256
-static uint32_t audio_buf[2][AUDIO_BUF_FRAMES];
-
-static uint audio_dma_chan[2];
+// Once per frame, on three well-spaced scanlines, send the AVI/Audio
+// InfoFrame and an Audio Clock Recovery refresh instead of an audio sample
+// packet for that scanline's HDMI Data Island - real HDMI sinks generally
+// require a periodic Audio InfoFrame (and usually an AVI InfoFrame) before
+// they'll enable audio decoding at all, no matter how correct the sample
+// packets are. Spaced apart (rather than consecutive) so at most one of
+// these rows is ever skipped before the next regular row flushes
+// pending_samples below - see its overflow comment.
+#define HDMI_AVI_INFOFRAME_ROW   0
+#define HDMI_AUDIO_INFOFRAME_ROW 80
+#define HDMI_ACR_REFRESH_ROW     160
 
 // ----------------------------------------------------------------------------
 
-static inline void mix_samples(uint32_t *buf, unsigned n_frames) {
-    for (unsigned i = 0; i < n_frames; ++i) {
+// Steps the software audio mixer per scanline (~1.4 samples @ 44.1kHz/60Hz)
+// and hands the result to the HDMI Data Island transport.
+void audio_i2s_step_scanline(void) {
+    static uint32_t sample_acc = 0;
+    static unsigned scanline_in_frame = 0;
+    static int16_t pending_samples[4];
+    static unsigned pending_count = 0;
+
+    // Pace audio sample generation to 44.1kHz (735 samples / 525 scanlines per frame)
+    sample_acc += 735;
+    uint32_t samples_to_gen = sample_acc / 525;
+    sample_acc %= 525;
+
+    for (uint32_t i = 0; i < samples_to_gen; ++i) {
         int32_t mix = 0;
 
         if (loop_voice.active) {
@@ -101,72 +103,35 @@ static inline void mix_samples(uint32_t *buf, unsigned n_frames) {
             mix = INT16_MAX;
         else if (mix < INT16_MIN)
             mix = INT16_MIN;
-        int16_t sample = (int16_t)mix;
 
-        // Same sample in both packed halves - this driver doesn't
-        // distinguish L/R (the real cabinet's sound is mono too).
-        buf[i] = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
+        // pending_count can never exceed 4 here: the HDMI_*_ROW scanlines
+        // above are spaced far enough apart that at most one of them is ever
+        // skipped before the next regular row flushes pending_samples below,
+        // and samples_to_gen is at most 2 per row (735/525 = 1.4 avg) - so
+        // carried-over + new is at most 2 + 2 = 4, exactly the audio sample
+        // packet's subpacket capacity (see hdmi_build_audio_sample_packet).
+        if (pending_count < 4)
+            pending_samples[pending_count++] = (int16_t)mix;
     }
-}
 
-// Fires once per ~5.8ms buffer (see AUDIO_BUF_FRAMES) - refills whichever
-// buffer DMA chaining just finished playing, while the other buffer plays.
-static void audio_dma_irq_handler(void) {
-    for (int i = 0; i < 2; ++i) {
-        if (dma_hw->ints1 & (1u << audio_dma_chan[i])) {
-            dma_hw->ints1 = 1u << audio_dma_chan[i];
-            mix_samples(audio_buf[i], AUDIO_BUF_FRAMES);
-            dma_channel_set_read_addr(audio_dma_chan[i], audio_buf[i], false);
-        }
+    if (scanline_in_frame == HDMI_AVI_INFOFRAME_ROW) {
+        dvi_engine_send_hdmi_avi_infoframe();
+    } else if (scanline_in_frame == HDMI_AUDIO_INFOFRAME_ROW) {
+        dvi_engine_send_hdmi_audio_infoframe(2, 44100);
+    } else if (scanline_in_frame == HDMI_ACR_REFRESH_ROW) {
+        dvi_engine_send_hdmi_acr_packet(HDMI_ACR_CTS_44100HZ, HDMI_ACR_N_44100HZ);
+    } else {
+        // Same sample in both L/R - this driver doesn't distinguish
+        // channels (the real cabinet's sound is mono too).
+        dvi_engine_send_hdmi_audio_samples(pending_samples, pending_samples, pending_count);
+        pending_count = 0;
     }
-}
 
-void audio_i2s_step_scanline(void) {
-    // Pace audio sample generation to 44.1kHz (735 samples / 525 scanlines per frame)
-    static uint32_t sample_acc = 0;
-    sample_acc += 735;
-    uint32_t samples_to_gen = sample_acc / 525;
-    sample_acc %= 525;
-
-    for (uint32_t i = 0; i < samples_to_gen; ++i) {
-        int32_t mix = 0;
-
-        if (loop_voice.active) {
-            mix += loop_voice.data[loop_voice.pos];
-            if (++loop_voice.pos >= loop_voice.len)
-                loop_voice.pos = 0;
-        }
-
-#if DEBUG_AUDIO_TEST_TONE
-        if (debug_voice.active) {
-            mix += debug_voice.data[debug_voice.pos];
-            if (++debug_voice.pos >= debug_voice.len)
-                debug_voice.pos = 0;
-        }
-#endif
-
-        for (unsigned v = 0; v < AUDIO_MAX_VOICES; ++v) {
-            if (!voices[v].active)
-                continue;
-            mix += voices[v].data[voices[v].pos];
-            if (++voices[v].pos >= voices[v].len)
-                voices[v].active = false;
-        }
-
-        mix = (mix * 60) / 100;
-
-        if (mix > INT16_MAX)
-            mix = INT16_MAX;
-        else if (mix < INT16_MIN)
-            mix = INT16_MIN;
-        int16_t sample = (int16_t)mix;
-
-        dvi_engine_send_hdmi_audio_sample(sample, sample);
-    }
+    scanline_in_frame = (scanline_in_frame + 1 >= FRAME_HEIGHT) ? 0 : scanline_in_frame + 1;
 }
 
 void audio_i2s_set_mute(bool mute) {
-    // MAX98357A hardware mute disabled - no-op.
+    // No physical amp/DAC in this design (audio goes out over HDMI) - no-op.
     (void)mute;
 }
 
@@ -191,8 +156,9 @@ void audio_i2s_play_sound(sound_id_t sound_id) {
     if (s->frame_count == 0)
         return; // not supplied at build time - silent, see sound_data.h
 
-    // mix_samples() runs from the DMA IRQ on this same core - briefly
-    // disable interrupts so it can never observe a voice slot half-updated.
+    // audio_i2s_step_scanline() runs from Core 0's main loop between
+    // pushing scanlines - briefly disable interrupts so it can never
+    // observe a voice slot half-updated.
     uint32_t save = save_and_disable_interrupts();
 
     unsigned slot = AUDIO_MAX_VOICES;
@@ -243,6 +209,5 @@ void audio_i2s_set_sound_loop(sound_id_t sound_id, bool active) {
 }
 
 void audio_i2s_init(void) {
-    // MAX98357A & PIO1 hardware initialization removed - audio is handled in software / HDMI TMDS.
     voice_steal_next = 0;
 }

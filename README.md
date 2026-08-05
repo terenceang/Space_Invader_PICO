@@ -4,7 +4,7 @@
 
 A real emulator of the 1978 Taito/Midway Space Invaders arcade PCB (Intel 8080 CPU, memory map, I/O ports and shift-register sprite hardware) for the [Waveshare RP2350-PiZero](https://www.waveshare.com/wiki/RP2350-PiZero), written in C against the Raspberry Pi Pico SDK, driving DVI video output over the board's mini-HDMI connector. This runs the *actual* arcade ROM (user-supplied - see [`roms/README.md`](roms/README.md)), not a from-scratch reimplementation of the game logic.
 
-**Status: early stage.** The DVI video pipeline and the 8080 emulator core + video output are built and working. An I2S audio driver exists but only plays a bring-up test tone so far, and input (joystick/fire) isn't wired up yet, so the ROM currently just runs its own attract-mode loop - see [Roadmap](#roadmap) and [`Emulator.md`](Emulator.md).
+**Status: early stage.** The DVI video pipeline, the 8080 emulator core + video output, SNES-controller input, and sound-effect playback (embedded into the HDMI signal itself - no physical audio hardware on this board) are built and working, though real audio depends on you supplying sample files and embedded-HDMI-audio playback specifically still needs verification against real display hardware - see [Roadmap](#roadmap) and [`Emulator.md`](Emulator.md).
 
 ## What's here right now
 

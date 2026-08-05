@@ -29,22 +29,28 @@ const uint16_t terc4_symbol_table[16] = {
 // Helper Functions: Error Correction Codes (BCH) & Checksums
 // ----------------------------------------------------------------------------
 
+// NOTE - these are NOT the real HDMI BCH(8,5)/(32,24) codes. HDMI 1.4
+// section 5.2.3.4/5.2.3.5 defines the actual header/subpacket ECC as a
+// specific bit-serial LFSR over a documented generator polynomial; this is a
+// placeholder parity (XOR mask below, plain byte-XOR here) that hasn't been
+// verified against the spec text. Most sinks tolerate incorrect/absent Data
+// Island ECC (many hobbyist HDMI TX implementations skip it entirely), so
+// this shouldn't block audio from working, but if a specific display still
+// rejects packets after the other audio fixes, this is the next thing to
+// get right against the actual spec PDF (or a protocol analyzer capture).
 uint8_t hdmi_bch_ecc_header(uint8_t hb0, uint8_t hb1, uint8_t hb2) {
-    // Parity calculation over 24 header bits using BCH(8,5) generator matrix per HDMI spec
     uint32_t header = (uint32_t)hb0 | ((uint32_t)hb1 << 8) | ((uint32_t)hb2 << 16);
     uint8_t parity = 0;
-    
+
     for (int bit = 0; bit < 24; bit++) {
         if ((header >> bit) & 1) {
-            // XOR with generator polynomial for header BCH
-            parity ^= (0x83 >> (bit % 8)); // Simplified bitwise parity mask
+            parity ^= (0x83 >> (bit % 8));
         }
     }
     return parity;
 }
 
 uint8_t hdmi_bch_ecc_subpacket(const uint8_t subpacket[7]) {
-    // BCH(32,24) parity calculation over 7 payload bytes (56 bits)
     uint8_t parity = 0;
     for (int i = 0; i < 7; i++) {
         parity ^= subpacket[i];
@@ -89,33 +95,35 @@ void hdmi_build_audio_clock_packet(hdmi_packet_t *pkt, uint32_t cts, uint32_t n)
     }
 }
 
-void hdmi_build_audio_sample_packet(hdmi_packet_t *pkt, int16_t left_sample, int16_t right_sample, bool sample_present) {
+void hdmi_build_audio_sample_packet(hdmi_packet_t *pkt, const int16_t *left, const int16_t *right, unsigned count) {
     memset(pkt, 0, sizeof(hdmi_packet_t));
-    
+    if (count > 4)
+        count = 4;
+
     // Header: Type 0x02 (Audio Sample Packet)
-    // hb1: Layout (bit 4 = 0 for 2-channel) + sample present mask (bits 0..3)
+    // hb1: Layout (bit 4 = 0 for 2-channel) + one "subpacket present" bit per subpacket (bits 0..3)
     pkt->header.hb0 = HDMI_PACKET_TYPE_AUDIO_SAMPLE;
-    pkt->header.hb1 = sample_present ? 0x01 : 0x00; // Subpacket 0 present
+    pkt->header.hb1 = (uint8_t)((1u << count) - 1u); // subpackets 0..count-1 present
     pkt->header.hb2 = 0x00; // Flat layout
     pkt->header_parity = hdmi_bch_ecc_header(pkt->header.hb0, pkt->header.hb1, pkt->header.hb2);
 
-    if (sample_present) {
-        // Subpacket 0: L/R 16-bit audio sample packed into 24-bit L-PCM fields
-        uint32_t left_24  = ((uint32_t)(uint16_t)left_sample) << 8;
-        uint32_t right_24 = ((uint32_t)(uint16_t)right_sample) << 8;
+    for (unsigned s = 0; s < count; s++) {
+        // L/R 16-bit audio sample packed into 24-bit L-PCM fields
+        uint32_t left_24  = ((uint32_t)(uint16_t)left[s]) << 8;
+        uint32_t right_24 = ((uint32_t)(uint16_t)right[s]) << 8;
 
-        pkt->subpacket[0].sb[0] = (uint8_t)(left_24 >> 0);
-        pkt->subpacket[0].sb[1] = (uint8_t)(left_24 >> 8);
-        pkt->subpacket[0].sb[2] = (uint8_t)(left_24 >> 16);
-        pkt->subpacket[0].sb[3] = (uint8_t)(right_24 >> 0);
-        pkt->subpacket[0].sb[4] = (uint8_t)(right_24 >> 8);
-        pkt->subpacket[0].sb[5] = (uint8_t)(right_24 >> 16);
-        
+        pkt->subpacket[s].sb[0] = (uint8_t)(left_24 >> 0);
+        pkt->subpacket[s].sb[1] = (uint8_t)(left_24 >> 8);
+        pkt->subpacket[s].sb[2] = (uint8_t)(left_24 >> 16);
+        pkt->subpacket[s].sb[3] = (uint8_t)(right_24 >> 0);
+        pkt->subpacket[s].sb[4] = (uint8_t)(right_24 >> 8);
+        pkt->subpacket[s].sb[5] = (uint8_t)(right_24 >> 16);
+
         // sb[6]: Validity (V), User (U), Channel Status (C), Parity (P) bits
         // Bit 0 = L_V, Bit 1 = R_V, Bit 2 = L_U, Bit 3 = R_U, Bit 4 = L_C, Bit 5 = R_C, Bit 6 = L_P, Bit 7 = R_P
-        pkt->subpacket[0].sb[6] = 0x00; 
+        pkt->subpacket[s].sb[6] = 0x00;
 
-        pkt->subpacket[0].parity = hdmi_bch_ecc_subpacket(pkt->subpacket[0].sb);
+        pkt->subpacket[s].parity = hdmi_bch_ecc_subpacket(pkt->subpacket[s].sb);
     }
 }
 
