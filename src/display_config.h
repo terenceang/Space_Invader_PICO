@@ -41,6 +41,12 @@
 #define DEBUG_AUDIO_ONLY 0
 #endif
 
+// HDMI Embedded Audio in TMDS (Experimental): enables HDMI Data Island & TERC4
+// packet transmission during horizontal blanking for embedded audio over mini-HDMI.
+#ifndef DVI_ENABLE_HDMI_AUDIO
+#define DVI_ENABLE_HDMI_AUDIO 0
+#endif
+
 // Screen orientation, to match however the physical display is actually
 // mounted - see Emulator.md's "Screen orientation" section. Neither of
 // these has any effect on the DVI engine's own fixed 640x480p60 output

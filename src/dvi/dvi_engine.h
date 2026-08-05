@@ -40,4 +40,7 @@ void dvi_engine_start(void);
 // dvi_q_colour_free. Never returns, but still services the DMA IRQ.
 void dvi_engine_encode_loop(void);
 
+// Sends/queues a 16-bit stereo PCM audio sample pair for transmission over HDMI Data Islands.
+void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right);
+
 #endif

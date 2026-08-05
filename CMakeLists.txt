@@ -91,6 +91,7 @@ add_executable(Space_Invader_PICO
         src/dvi/dvi_engine.c
         src/dvi/tmds_encode_sio.c
         src/dvi/tmds_encode_sio.S
+        src/dvi/hdmi_audio.c
         src/audio/audio_i2s.c
         src/audio/sound_effects.c
         src/emu/i8080.c

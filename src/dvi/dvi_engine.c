@@ -29,6 +29,8 @@
 #include "tmds_encode_sio.h"
 
 #include "dvi_engine.h"
+#include "display_config.h"
+#include "hdmi_audio.h"
 
 // ----------------------------------------------------------------------------
 // Board-specific configuration (Waveshare RP2350-PiZero, 640x480p60 RGB565)
@@ -141,6 +143,18 @@ queue_t dvi_q_colour_valid;
 queue_t dvi_q_colour_free;
 static queue_t q_tmds_valid;
 static queue_t q_tmds_free;
+
+typedef struct {
+    int16_t left;
+    int16_t right;
+} hdmi_audio_sample_t;
+
+#define HDMI_AUDIO_QUEUE_DEPTH 64
+static queue_t q_hdmi_audio_samples;
+
+static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch0[18];
+static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch1[18];
+static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch2[18];
 
 // Each symbol appears twice, concatenated in one word (DVI_SYMBOLS_PER_WORD
 // == 2 on this board). Spec-defined DVI control symbols, pseudo-
@@ -401,6 +415,13 @@ void dvi_engine_init(void) {
     queue_init(&q_tmds_free, sizeof(void *), DVI_QUEUE_DEPTH);
     queue_init(&dvi_q_colour_valid, sizeof(void *), DVI_QUEUE_DEPTH);
     queue_init(&dvi_q_colour_free, sizeof(void *), DVI_QUEUE_DEPTH);
+    queue_init(&q_hdmi_audio_samples, sizeof(hdmi_audio_sample_t), HDMI_AUDIO_QUEUE_DEPTH);
+
+    // Pre-encode initial Audio Clock Recovery packet (N=6272, CTS=25200 for 44.1kHz @ 25.2MHz pixel clock)
+    hdmi_packet_t acr_pkt;
+    hdmi_build_audio_clock_packet(&acr_pkt, 25200, 6272);
+    hdmi_encode_data_island(&acr_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
+                            hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
 
     dvi_setup_scanline_for_vblank(true, &dma_list_vblank_sync);
     dvi_setup_scanline_for_vblank(false, &dma_list_vblank_nosync);
@@ -456,4 +477,9 @@ void __dvi_func(dvi_engine_encode_loop)(void) {
         dvi_prepare_scanline(scanbuf);
         queue_add_blocking_u32(&dvi_q_colour_free, &scanbuf);
     }
+}
+
+void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right) {
+    hdmi_audio_sample_t sample = { left, right };
+    queue_try_add(&q_hdmi_audio_samples, &sample);
 }
