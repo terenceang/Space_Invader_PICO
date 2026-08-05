@@ -157,9 +157,10 @@ typedef struct {
 #define HDMI_AUDIO_QUEUE_DEPTH 64
 static queue_t q_hdmi_audio_samples;
 
-static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch0[18];
-static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch1[18];
-static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch2[18];
+static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch0[2][18];
+static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch1[2][18];
+static uint32_t __not_in_flash("dvi_engine_data") hdmi_island_ch2[2][18];
+static volatile uint hdmi_island_active_idx = 0;
 
 // Each symbol appears twice, concatenated in one word (DVI_SYMBOLS_PER_WORD
 // == 2 on this board). Spec-defined DVI control symbols, pseudo-
@@ -264,14 +265,14 @@ static void dvi_setup_scanline_for_active(uint32_t *tmdsbuf, struct dvi_scanline
     set_data_cb(&synclist[0], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, DVI_H_FRONT_PORCH / DVI_SYMBOLS_PER_WORD, 2, false);
     set_data_cb(&synclist[1], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_on,  DVI_H_SYNC_WIDTH / DVI_SYMBOLS_PER_WORD, 2, false);
     set_data_cb(&synclist[2], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, 4, 2, false);
-    set_data_cb(&synclist[3], &dma_cfg[TMDS_SYNC_LANE], hdmi_island_ch0, 18, 0, false);
+    set_data_cb(&synclist[3], &dma_cfg[TMDS_SYNC_LANE], hdmi_island_ch0[hdmi_island_active_idx], 18, 0, false);
     set_data_cb(&synclist[4], &dma_cfg[TMDS_SYNC_LANE], sym_hsync_off, 2, 2, true);
 
     for (int i = 0; i < N_TMDS_LANES; ++i) {
         if (i == TMDS_SYNC_LANE) continue;
         dma_cb_t *cblist = dvi_lane_from_list(l, i);
         set_data_cb(&cblist[0], &dma_cfg[i], sym_no_sync, (DVI_H_FRONT_PORCH + DVI_H_SYNC_WIDTH) / DVI_SYMBOLS_PER_WORD + 4, 2, false);
-        set_data_cb(&cblist[1], &dma_cfg[i], i == 1 ? hdmi_island_ch1 : hdmi_island_ch2, 18, 0, false);
+        set_data_cb(&cblist[1], &dma_cfg[i], i == 1 ? hdmi_island_ch1[hdmi_island_active_idx] : hdmi_island_ch2[hdmi_island_active_idx], 18, 0, false);
         set_data_cb(&cblist[2], &dma_cfg[i], sym_no_sync, 2, 2, false);
     }
 #else
@@ -442,11 +443,13 @@ void dvi_engine_init(void) {
     queue_init(&dvi_q_colour_free, sizeof(void *), DVI_QUEUE_DEPTH);
     queue_init(&q_hdmi_audio_samples, sizeof(hdmi_audio_sample_t), HDMI_AUDIO_QUEUE_DEPTH);
 
-    // Pre-encode initial Audio Clock Recovery packet (N=6272, CTS=25200 for 44.1kHz @ 25.2MHz pixel clock)
+    // Pre-encode initial Audio Clock Recovery packet into both double buffers (N=6272, CTS=25200 for 44.1kHz @ 25.2MHz pixel clock)
     hdmi_packet_t acr_pkt;
     hdmi_build_audio_clock_packet(&acr_pkt, 25200, 6272);
-    hdmi_encode_data_island(&acr_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
-                            hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
+    for (int buf = 0; buf < 2; buf++) {
+        hdmi_encode_data_island(&acr_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
+                                hdmi_island_ch0[buf], hdmi_island_ch1[buf], hdmi_island_ch2[buf]);
+    }
 
     dvi_setup_scanline_for_vblank(true, &dma_list_vblank_sync);
     dvi_setup_scanline_for_vblank(false, &dma_list_vblank_nosync);
@@ -497,11 +500,14 @@ static void __dvi_func(dvi_prepare_scanline)(uint32_t *scanbuf) {
 
 void dvi_engine_send_hdmi_audio_sample(int16_t left, int16_t right) {
 #if DVI_ENABLE_HDMI_AUDIO
-    // Pre-encode audio sample packet on Core 0 (off Core 1's scanline encode loop)
+    uint write_idx = 1 - hdmi_island_active_idx;
     hdmi_packet_t audio_pkt;
     hdmi_build_audio_sample_packet(&audio_pkt, left, right, true);
     hdmi_encode_data_island(&audio_pkt, !DVI_H_SYNC_POLARITY, !DVI_V_SYNC_POLARITY,
-                            hdmi_island_ch0, hdmi_island_ch1, hdmi_island_ch2);
+                            hdmi_island_ch0[write_idx],
+                            hdmi_island_ch1[write_idx],
+                            hdmi_island_ch2[write_idx]);
+    hdmi_island_active_idx = write_idx;
 #else
     (void)left;
     (void)right;

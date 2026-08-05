@@ -73,15 +73,17 @@ void hdmi_build_audio_clock_packet(hdmi_packet_t *pkt, uint32_t cts, uint32_t n)
     pkt->header.hb2 = 0x00;
     pkt->header_parity = hdmi_bch_ecc_header(pkt->header.hb0, pkt->header.hb1, pkt->header.hb2);
 
-    // Subpacket 0 contains CTS and N (Subpackets 1..3 mirror Subpacket 0 for redundancy)
+    // Subpacket layout per HDMI 1.4 spec section 5.3.3:
+    // sb[0] = 0x00, sb[1] = CTS[19:12], sb[2] = CTS[11:4], sb[3] = CTS[3:0]<<4
+    // sb[4] = N[19:12], sb[5] = N[11:4], sb[6] = N[3:0]<<4
     for (int s = 0; s < 4; s++) {
-        pkt->subpacket[s].sb[0] = (uint8_t)(cts >> 16);
-        pkt->subpacket[s].sb[1] = (uint8_t)(cts >> 8);
-        pkt->subpacket[s].sb[2] = (uint8_t)(cts >> 0);
-        pkt->subpacket[s].sb[3] = (uint8_t)(n >> 16);
-        pkt->subpacket[s].sb[4] = (uint8_t)(n >> 8);
-        pkt->subpacket[s].sb[5] = (uint8_t)(n >> 0);
-        pkt->subpacket[s].sb[6] = 0x00;
+        pkt->subpacket[s].sb[0] = 0x00;
+        pkt->subpacket[s].sb[1] = (uint8_t)(cts >> 12);
+        pkt->subpacket[s].sb[2] = (uint8_t)(cts >> 4);
+        pkt->subpacket[s].sb[3] = (uint8_t)((cts & 0x0F) << 4);
+        pkt->subpacket[s].sb[4] = (uint8_t)(n >> 12);
+        pkt->subpacket[s].sb[5] = (uint8_t)(n >> 4);
+        pkt->subpacket[s].sb[6] = (uint8_t)((n & 0x0F) << 4);
         
         pkt->subpacket[s].parity = hdmi_bch_ecc_subpacket(pkt->subpacket[s].sb);
     }
