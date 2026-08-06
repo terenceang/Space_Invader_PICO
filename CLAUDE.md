@@ -57,15 +57,23 @@ than a bug in this project's own code. It needs `Sample Code/` on disk locally; 
 directory is gitignored (Waveshare's demo package, not part of this project) so it won't
 exist after a fresh clone. Do not add feature work to it or to `lib/PicoDVI`.
 
-### Debug test card
+### Debug test cards
 
-`src/display_config.h` controls whether boot shows the debug test card (color bars,
-grayscale ramp, moving sync bar) before handing off to the game:
+`src/display_config.h` controls two independent debug screens shown before/instead of the
+game, both off by default:
 
 ```c
-#define DEBUG_TESTCARD 1          // 0 to skip the test card and boot straight into the game
-#define DEBUG_TESTCARD_SECONDS 5
+#define DEBUG_TESTCARD 0             // 1 to show the color-bar/grayscale test card at boot
+#define DEBUG_TESTCARD_SECONDS 5     // seconds to show it before handing off (0 = permanent)
+#define DEBUG_CONTROLLER_TESTCARD 0  // 1 to show a live SNES button diagram instead of the game
 ```
+
+`testcard.c` draws the color-bar/grayscale/moving-sync-bar pattern; `controller_testcard.c`
+draws a button-diagram (D-pad, face buttons, shoulders, select/start) that lights each
+button green while held, using the same `snes_controller_read()` the game itself uses - a
+hardware/wiring check independent of the emulator or ROM. If both are enabled, the
+color-bar card shows first, then the controller card. See `main.c` for how the two are
+sequenced into the per-scanline render loop.
 
 ## Architecture
 
@@ -108,9 +116,9 @@ a couple of numbers to experiment with rather than one hardcoded transform: seve
 earlier attempts at deriving "the one correct" transform by hand were each wrong in a
 different way.
 
-Inputs aren't wired to anything yet (`invaders_machine_set_in1()` exists for whatever
-GPIO/controller work comes next) - with no coin/start, the ROM just runs its own real
-attract-mode loop, which is itself a correct emulation of idle hardware.
+Inputs are wired via `invaders_machine_set_in1()`, called every frame from `game.c` with
+the SNES controller's decoded button state (`src/input/snes_controller.c`) -
+SELECT/START/LEFT/RIGHT/A|B|X|Y map to coin/start/joystick/fire respectively.
 
 **The real arcade ROM is not vendored** - it's loaded from 4 user-supplied files in
 `roms/` (gitignored) and embedded into the flash image at build time by
@@ -151,7 +159,8 @@ encode and vertical line doubling in DMA IRQs. 256 palette entries (0xRRGGBB) ar
 | `src/emu/rom_data.h` | Declares the embedded ROM array defined by the CMake-generated source |
 | `roms/` | User-supplied real arcade ROM files go here (gitignored, not vendored) |
 | `cmake/generate_rom.cmake` | Embeds `roms/invaders.{h,g,f,e}` into a linkable C array at build time |
-| `src/testcard.c` / `.h` | Debug test pattern generator (8bpp palettized) |
+| `src/testcard.c` / `.h` | Debug color-bar test pattern generator (8bpp palettized) |
+| `src/controller_testcard.c` / `.h` | Debug SNES-controller button diagram (lights up per button, live) |
 | `src/display_config.h` | Framebuffer size, 8-bit palette color constants, refresh rate, debug flags |
 | `src/dvi_display.c` / `.h` | Clock/voltage setup, palette setup, Core 1 entry point launching `frank_hdmi_run_core1()` |
 | `lib/frank-hdmi-audio/` | Core DVI + HDMI Data Island audio driver library (8bpp LUT, PIO TMDS serialisers, DMA IRQs) |

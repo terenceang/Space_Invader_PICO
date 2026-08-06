@@ -35,7 +35,7 @@ set(PICO_BOARD waveshare_rp2350_pizero CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(Space_Invader_PICO VERSION 0.8.0 LANGUAGES C CXX ASM)
+project(Space_Invader_PICO VERSION 1.0.0 LANGUAGES C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -91,6 +91,7 @@ add_executable(Space_Invader_PICO
         src/main.c
         src/dvi_display.c
         src/testcard.c
+        src/controller_testcard.c
         src/game.c
         src/audio/audio_i2s.c
         src/audio/sound_effects.c

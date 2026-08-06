@@ -202,7 +202,7 @@ Connecting a serial terminal (such as VS Code Serial Monitor or TeraTerm) over e
 
 ```text
 ==================================================
-  Space Invader PICO  v0.8.0
+  Space Invader PICO  v1.0.0
 ==================================================
 [DEBUG] Microcontroller: RP2350B (Cortex-M33)
 [DEBUG] Core Voltage   : 1.25V

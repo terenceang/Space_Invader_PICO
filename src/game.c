@@ -99,22 +99,6 @@ static inline void apply_mirror(unsigned *lx, unsigned *ly) {
 #endif
 }
 
-#if SI_ENABLE_SCANLINES && SI_SCANLINE_INTENSITY > 0
-static inline uint8_t apply_scanline(uint8_t color, unsigned lx) {
-    // Darkened palette variants live at a fixed offset from their base
-    // color - see display_config.h's COLOR_*_DARK constants and
-    // dvi_display.c, which populates them. color is always one of the base
-    // COLOR_* indices here (lit_pixel_color()/COLOR_BLACK), so the offset
-    // always lands on a valid darkened entry.
-    return (lx & 1) ? (uint8_t)(color + COLOR_DARK_OFFSET) : color;
-}
-#else
-static inline uint8_t apply_scanline(uint8_t color, unsigned lx) {
-    (void)lx;
-    return color;
-}
-#endif
-
 #if SI_DISPLAY_ROTATION == 0 || SI_DISPLAY_ROTATION == 180
 
 static void render_arcade_row(uint8_t *buf, const uint8_t *vram, unsigned ay) {
@@ -167,8 +151,7 @@ static void render_arcade_row(uint8_t *buf, const uint8_t *vram, unsigned ay) {
 #endif
 
         int bit = (column[cur_lx >> 3] >> (cur_lx & 7)) & 1;
-        uint8_t color = bit ? lit_pixel_color(ox, SI_ARCADE_WIDTH) : COLOR_BLACK;
-        buf[x] = apply_scanline(color, cur_lx);
+        buf[x] = bit ? lit_pixel_color(ox, SI_ARCADE_WIDTH) : COLOR_BLACK;
     }
 }
 
@@ -213,8 +196,7 @@ static void render_arcade_row(uint8_t *buf, const uint8_t *vram, unsigned ay) {
         unsigned cur_lx = lx, cur_ly = ly;
         apply_mirror(&cur_lx, &cur_ly);
 
-        uint8_t color = sample_bit(vram, cur_lx, cur_ly) ? lit_pixel_color(ox, SI_ARCADE_HEIGHT) : COLOR_BLACK;
-        buf[x] = apply_scanline(color, cur_lx);
+        buf[x] = sample_bit(vram, cur_lx, cur_ly) ? lit_pixel_color(ox, SI_ARCADE_HEIGHT) : COLOR_BLACK;
     }
 }
 

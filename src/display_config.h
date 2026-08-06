@@ -16,15 +16,26 @@
 // pattern (testcard.c). Set to 0 to show permanently, or N > 0 to show for N
 // seconds before handing off to the game. Set DEBUG_TESTCARD 0 to disable.
 #ifndef DEBUG_TESTCARD
-#define DEBUG_TESTCARD 1
+#define DEBUG_TESTCARD 0
 #endif
 #ifndef DEBUG_TESTCARD_SECONDS
 #define DEBUG_TESTCARD_SECONDS 5
 #endif
 
+// Debug controller test card: shows a live SNES-controller button diagram
+// (controller_testcard.c) instead of the game - each button lights up green
+// while held, for checking wiring/mapping without a serial console. Shown
+// permanently while enabled (no timeout, unlike DEBUG_TESTCARD above) since
+// bring-up testing needs time to press every button. Set to 0 to go
+// straight into the game. Takes a back seat to DEBUG_TESTCARD above if both
+// are enabled - the colour-bar card shows first, then this.
+#ifndef DEBUG_CONTROLLER_TESTCARD
+#define DEBUG_CONTROLLER_TESTCARD 0
+#endif
+
 // Debug audio test tone: set to 1 to play test tone during test card, 0 to disable.
 #ifndef DEBUG_AUDIO_TEST_TONE
-#define DEBUG_AUDIO_TEST_TONE 1
+#define DEBUG_AUDIO_TEST_TONE 0
 #endif
 
 // Screen orientation, to match however the physical display is actually
@@ -72,27 +83,6 @@
 // cosmetic overlay.
 #ifndef SI_ENABLE_COLOR_OVERLAY
 #define SI_ENABLE_COLOR_OVERLAY 1
-#endif
-
-// CRT scanline effect: darkens alternating pixels along the game's own
-// horizontal axis to approximate the visible scan lines of a real CRT -
-// see Emulator.md's "CRT scanline effect" section (the choice of axis was
-// determined empirically against real hardware, not derived from theory).
-// Purely a video-conversion-stage cosmetic, independent of rotation/
-// mirror/overlay and of the CPU emulation.
-//
-// SI_SCANLINE_INTENSITY: 0-100 (0 = no darkening even if enabled, 100 =
-// darkened pixels go fully black). Must be 0-100 - anything else is a
-// compile error.
-#ifndef SI_ENABLE_SCANLINES
-#define SI_ENABLE_SCANLINES 1
-#endif
-#ifndef SI_SCANLINE_INTENSITY
-#define SI_SCANLINE_INTENSITY 10
-#endif
-
-#if SI_SCANLINE_INTENSITY > 100
-#error "SI_SCANLINE_INTENSITY must be 0-100"
 #endif
 
 // Shifts the game image within the 320x240 framebuffer, in pixels -
@@ -143,21 +133,5 @@
 #define COLOR_MAGENTA 5 // Magenta (0xFF00FF)
 #define COLOR_RED     6 // Red (0xFF0000)
 #define COLOR_BLUE    7 // Blue (0x0000FF)
-
-// Darkened variants of the 8 colors above, same order, offset by
-// COLOR_DARK_OFFSET - populated by dvi_display_init() by scaling each RGB
-// channel by SI_SCANLINE_INTENSITY, and selected by game.c's
-// apply_scanline() for the CRT scanline effect (see SI_ENABLE_SCANLINES
-// above and Emulator.md's "CRT scanline effect" section). Add
-// COLOR_DARK_OFFSET to any base COLOR_* to get its darkened variant.
-#define COLOR_DARK_OFFSET   8
-#define COLOR_BLACK_DARK   (COLOR_BLACK   + COLOR_DARK_OFFSET)
-#define COLOR_WHITE_DARK   (COLOR_WHITE   + COLOR_DARK_OFFSET)
-#define COLOR_YELLOW_DARK  (COLOR_YELLOW  + COLOR_DARK_OFFSET)
-#define COLOR_CYAN_DARK    (COLOR_CYAN    + COLOR_DARK_OFFSET)
-#define COLOR_GREEN_DARK   (COLOR_GREEN   + COLOR_DARK_OFFSET)
-#define COLOR_MAGENTA_DARK (COLOR_MAGENTA + COLOR_DARK_OFFSET)
-#define COLOR_RED_DARK     (COLOR_RED     + COLOR_DARK_OFFSET)
-#define COLOR_BLUE_DARK    (COLOR_BLUE    + COLOR_DARK_OFFSET)
 
 #endif // DISPLAY_CONFIG_H

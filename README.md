@@ -1,6 +1,6 @@
 # Space Invader PICO
 
-**Version: 0.8.0**
+**Version: 1.0.0**
 
 A real emulator of the 1978 Taito/Midway Space Invaders arcade PCB (Intel 8080 CPU, memory map, I/O ports and shift-register sprite hardware) for the [Waveshare RP2350-PiZero](https://www.waveshare.com/wiki/RP2350-PiZero), written in C against the Raspberry Pi Pico SDK, driving palettized DVI/HDMI video output and 32 kHz PCM audio over the board's mini-HDMI connector. This runs the *actual* arcade ROM (user-supplied - see [`roms/README.md`](roms/README.md)), not a from-scratch reimplementation of the game logic.
 

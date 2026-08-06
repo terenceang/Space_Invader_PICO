@@ -148,6 +148,29 @@ static inline void do_cmp(i8080_t *c, uint8_t v) {
     set_zsp(c, (uint8_t)result);
 }
 
+// ANA sets AC to the OR of bit3 of both operands (a documented real-hardware
+// quirk) rather than always 0 like XRA/ORA.
+static inline void do_and(i8080_t *c, uint8_t v) {
+    c->flag_ac = ((c->a | v) & 0x08) != 0;
+    c->a &= v;
+    c->flag_cy = 0;
+    set_zsp(c, c->a);
+}
+
+static inline void do_xor(i8080_t *c, uint8_t v) {
+    c->a ^= v;
+    c->flag_cy = 0;
+    c->flag_ac = 0;
+    set_zsp(c, c->a);
+}
+
+static inline void do_or(i8080_t *c, uint8_t v) {
+    c->a |= v;
+    c->flag_cy = 0;
+    c->flag_ac = 0;
+    set_zsp(c, c->a);
+}
+
 static inline uint8_t do_inr(i8080_t *c, uint8_t v) {
     uint8_t r = (uint8_t)(v + 1);
     c->flag_ac = ((v & 0xF) + 1) > 0xF;
@@ -230,11 +253,9 @@ int i8080_step(i8080_t *c) {
             case 1: do_add(c, v, c->flag_cy); break;
             case 2: do_sub(c, v, 0); break;
             case 3: do_sub(c, v, c->flag_cy); break;
-            // ANA sets AC to the OR of bit3 of both operands (a documented
-            // real-hardware quirk) rather than always 0 like XRA/ORA.
-            case 4: c->flag_ac = ((c->a | v) & 0x08) != 0; c->a &= v; c->flag_cy = 0; set_zsp(c, c->a); break;
-            case 5: c->a ^= v; c->flag_cy = 0; c->flag_ac = 0; set_zsp(c, c->a); break;
-            case 6: c->a |= v; c->flag_cy = 0; c->flag_ac = 0; set_zsp(c, c->a); break;
+            case 4: do_and(c, v); break;
+            case 5: do_xor(c, v); break;
+            case 6: do_or(c, v); break;
             default: do_cmp(c, v); break;
         }
         return (src == 6) ? 7 : 4;
@@ -280,7 +301,7 @@ int i8080_step(i8080_t *c) {
             return 5;
         }
         case 0x09: case 0x19: case 0x29: case 0x39: { // DAD RP
-            unsigned hl = (unsigned)((c->h << 8) | c->l);
+            unsigned hl = rp_get(c, 2);
             unsigned sum = hl + rp_get(c, (op >> 4) & 3);
             c->flag_cy = sum > 0xFFFF;
             c->h = (uint8_t)(sum >> 8);
@@ -342,9 +363,9 @@ int i8080_step(i8080_t *c) {
         case 0xCE: do_add(c, fetch8(c), c->flag_cy); return 7;     // ACI
         case 0xD6: do_sub(c, fetch8(c), 0); return 7;              // SUI
         case 0xDE: do_sub(c, fetch8(c), c->flag_cy); return 7;     // SBI
-        case 0xE6: { uint8_t v = fetch8(c); c->flag_ac = ((c->a | v) & 0x08) != 0; c->a &= v; c->flag_cy = 0; set_zsp(c, c->a); return 7; } // ANI
-        case 0xEE: { uint8_t v = fetch8(c); c->a ^= v; c->flag_cy = 0; c->flag_ac = 0; set_zsp(c, c->a); return 7; } // XRI
-        case 0xF6: { uint8_t v = fetch8(c); c->a |= v; c->flag_cy = 0; c->flag_ac = 0; set_zsp(c, c->a); return 7; } // ORI
+        case 0xE6: do_and(c, fetch8(c)); return 7;                 // ANI
+        case 0xEE: do_xor(c, fetch8(c)); return 7;                 // XRI
+        case 0xF6: do_or(c, fetch8(c)); return 7;                  // ORI
         case 0xFE: do_cmp(c, fetch8(c)); return 7;                 // CPI
 
         case 0xC3: case 0xCB: // JMP (0xCB documented duplicate)
@@ -396,8 +417,8 @@ int i8080_step(i8080_t *c) {
             return 11;
         }
 
-        case 0xE9: c->pc = (uint16_t)((c->h << 8) | c->l); return 5; // PCHL
-        case 0xF9: c->sp = (uint16_t)((c->h << 8) | c->l); return 5; // SPHL
+        case 0xE9: c->pc = rp_get(c, 2); return 5; // PCHL
+        case 0xF9: c->sp = rp_get(c, 2); return 5; // SPHL
 
         case 0xC5: case 0xD5: case 0xE5: case 0xF5: // PUSH RP
             push16(c, rp_push_get(c, (op >> 4) & 3));

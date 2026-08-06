@@ -44,8 +44,10 @@ uint16_t snes_controller_read(void) {
     // Drain FIFO to get the most recent reading
     while (!pio_sm_is_rx_fifo_empty(s_pio, s_sm)) {
         uint32_t raw_word = pio_sm_get(s_pio, s_sm);
-        // SNES button bits are active LOW (0 when pressed). Invert so 1 = pressed.
-        s_last_buttons = (uint16_t)(~raw_word & 0xFFFF);
+        // SNES button bits are active LOW (0 when pressed), and land in the upper
+        // 16 bits of the pushed word (shift_right ISR, only 16 of 32 bits shifted -
+        // see snes_controller.pio). Shift down before inverting so 1 = pressed.
+        s_last_buttons = (uint16_t)(~(raw_word >> 16) & 0xFFFF);
     }
 
     return s_last_buttons;

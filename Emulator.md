@@ -233,54 +233,6 @@ fixed screen edge, that means going back to keying it off `ly`/`col`
 (what an earlier version of this file did) rather than `ox` - the two
 are genuinely different design choices, not a bug either way.
 
-## CRT scanline effect
-
-`SI_ENABLE_SCANLINES` / `SI_SCANLINE_INTENSITY` (0-100) in
-`src/display_config.h` add an optional darkened-alternate-pixels effect
-approximating a real CRT's visible scan lines. `apply_scanline()` darkens
-alternating pixels along `lx` (the post-mirror game-space horizontal
-coordinate), applied per-pixel inside `render_arcade_row()` at the point
-each pixel's final color is decided.
-
-**This axis was picked empirically, not derived from theory.** Two earlier
-versions of this effect existed first: one keyed on `y`/`ay` (our
-transmission row index, darkening whole rows as a post-process), then one
-keyed on `ly` (the game-space vertical coordinate, reasoned to be
-row-invariant and therefore equivalent to the first version for
-`SI_DISPLAY_ROTATION == 0`). Both were expected to produce horizontal
-bands for the confirmed `SI_DISPLAY_ROTATION 0` / `SI_DISPLAY_FLIP_H 1`
-setup - that reasoning about `ly` being row-invariant was correct as far
-as it went, but on real hardware both versions actually produced
-*vertical* bands, not horizontal. `lx` was tried next, on direct request,
-and confirmed correct. This project's rotation-related bugs have
-repeatedly turned out to be spots where a plausible-sounding derivation
-about "which axis maps to what after rotation" didn't hold up against
-what the actual hardware showed (see the "Screen orientation" section's
-own history of this) - this is another instance of that, not a case where
-the earlier reasoning was internally inconsistent.
-
-Each row is physically doubled to 2 scanlines by the DVI engine's
-`DVI_VERTICAL_REPEAT` (see `Video.md`), so the overall darkening still
-lands as a repeating pattern at the final 640x480 output, with the pitch
-and orientation depending on `SI_DISPLAY_ROTATION` as observed rather than
-as separately derived per rotation mode.
-
-**Implementation (palette-based, since the v0.8.0 switch to an 8bpp
-palettized framebuffer):** darkening a pixel now means indexing a
-different, pre-darkened palette entry rather than scaling an RGB565 word
-in place - a palette index carries no brightness information to scale
-directly. `src/display_config.h` defines a `COLOR_*_DARK` variant of each
-of the 8 base `COLOR_*` indices, at a fixed `COLOR_DARK_OFFSET` (8) from
-its base color. `dvi_display_init()` (`src/dvi_display.c`) populates those
-8 extra palette entries once at boot, scaling each RGB channel of the
-corresponding base color by `SI_SCANLINE_INTENSITY` percent (a compile-time
-constant, so the division folds into a multiply-shift at compile time, not
-a runtime division) via `DARKEN_COLOR()`/`DARKEN_CHANNEL()`. `apply_scanline()`
-itself is then just `color + COLOR_DARK_OFFSET` on odd `lx`, an O(1) index
-add with no per-pixel arithmetic on color channels at all - cheaper than
-the RGB565-era approach this replaced, not just functionally equivalent to
-it.
-
 ## Image scaling
 
 `SI_SCALE_MODE` in `src/display_config.h` scales the game image before
@@ -335,15 +287,10 @@ compile-time constants (`SI_DISPLAY_W`/`SI_DISPLAY_H`), so they fold into
 multiply-shift sequences same as elsewhere in this file - no runtime
 division.
 
-The overlay (`ox` passed to `lit_pixel_color()`) and scanline effect
-(`lx` passed to `apply_scanline()`) both use the *content-space* `ox`/`lx`
-values (post nearest-neighbor mapping), not `display_x`, so they scale
+The overlay (`ox` passed to `lit_pixel_color()`) uses the *content-space*
+`ox` value (post nearest-neighbor mapping), not `display_x`, so it scales
 together with the game graphics rather than staying a fixed pixel width
-regardless of `SI_SCALE_MODE`. One known cosmetic caveat: since the
-scanline effect alternates by content pixel, non-1:1 scale ratios can
-produce uneven-looking bands (some content pixels duplicated or skipped
-by nearest-neighbor sampling land differently against the alternating
-pattern) - acceptable for this simple approach, not addressed further.
+regardless of `SI_SCALE_MODE`.
 
 ## Screen offset
 
@@ -361,7 +308,7 @@ than replacing either. Pixels the offset pushes outside the framebuffer
 simply clip to the black border; there's no bounds error for an offset
 that's "too large." Useful for nudging the image to compensate for a
 slightly misaligned bezel/mount or display overscan, independent of
-rotation/mirror/overlay/scanlines/scaling.
+rotation/mirror/overlay/scaling.
 
 ## Limitations (this pass: CPU core + video only)
 

@@ -1,6 +1,5 @@
 #include <stdbool.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -12,6 +11,9 @@
 #include "frank_hdmi.h"
 #if DEBUG_TESTCARD
 #include "testcard.h"
+#endif
+#if DEBUG_CONTROLLER_TESTCARD
+#include "controller_testcard.h"
 #endif
 
 static uint8_t fb[FRAME_WIDTH * FRAME_HEIGHT];
@@ -32,6 +34,10 @@ int main() {
     testcard_init();
     printf("[DEBUG] DEBUG_TESTCARD enabled: test card for %d seconds, then the game.\n",
            DEBUG_TESTCARD_SECONDS);
+#endif
+#if DEBUG_CONTROLLER_TESTCARD
+    controller_testcard_init();
+    printf("[DEBUG] DEBUG_CONTROLLER_TESTCARD enabled: showing controller test card instead of the game.\n");
 #endif
     game_init();
 
@@ -67,22 +73,29 @@ int main() {
 
 #if DEBUG_TESTCARD
         bool show_testcard = (DEBUG_TESTCARD_SECONDS == 0) || (frame_count < testcard_frames);
+#else
+        bool show_testcard = false;
+#endif
 #if DEBUG_AUDIO_TEST_TONE
+        // Tone only accompanies the colour-bar test card's audio/video sanity
+        // check - stop it as soon as that card isn't what's showing, so it
+        // doesn't keep playing under the controller test card or the game.
         static bool test_tone_stopped = false;
         if (!show_testcard && !test_tone_stopped) {
             audio_i2s_debug_stop_test_tone();
             test_tone_stopped = true;
         }
 #endif
-#endif
         for (unsigned y = 0; y < FRAME_HEIGHT; ++y) {
             uint8_t *dst = fb + y * FRAME_WIDTH;
 #if DEBUG_TESTCARD
             if (show_testcard) {
                 testcard_render_scanline(dst, y, frame_count);
-            } else {
-                game_render_scanline(dst, y, frame_count);
+                continue;
             }
+#endif
+#if DEBUG_CONTROLLER_TESTCARD
+            controller_testcard_render_scanline(dst, y, frame_count);
 #else
             game_render_scanline(dst, y, frame_count);
 #endif
