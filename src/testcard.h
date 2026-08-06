@@ -5,6 +5,5 @@
 
 void testcard_init(void);
 void testcard_render_scanline(uint8_t *dst, unsigned y, unsigned frame_count);
-void testcard_render_frame(uint8_t *fb, unsigned frame_count);
 
 #endif // TESTCARD_H

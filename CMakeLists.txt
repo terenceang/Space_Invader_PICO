@@ -6,6 +6,13 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# This is firmware for a resource-constrained embedded target: default to an
+# optimized build when the documented build command (README/CLAUDE.md) is
+# used as-is, without requiring -DCMAKE_BUILD_TYPE on the command line.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
@@ -39,6 +46,15 @@ add_subdirectory(lib/PicoDVI/software/libdvi)
 
 # Add frank-hdmi-audio library for palettized HDMI video & audio
 add_subdirectory(lib/frank-hdmi-audio)
+
+# This board's DVI pinout (GPIO 32-39 - see Hardware.md), shared by the main
+# app target below and the hello_hdmi reference example target, so the two
+# can't drift apart.
+set(SI_HDMI_PIN_CLK 38)
+set(SI_HDMI_PIN_D0 36)
+set(SI_HDMI_PIN_D1 34)
+set(SI_HDMI_PIN_D2 32)
+set(SI_HDMI_INVERT_DIFFPAIRS 0)
 
 # ----------------------------------------------------------------------------
 # Space Invaders arcade ROM: embedded into the flash image at build time from
@@ -113,11 +129,11 @@ target_include_directories(Space_Invader_PICO PRIVATE
 
 target_compile_definitions(Space_Invader_PICO PRIVATE
         PICO_PIO_USE_GPIO_BASE=1
-        FRANK_HDMI_PIN_CLK=38
-        FRANK_HDMI_PIN_D0=36
-        FRANK_HDMI_PIN_D1=34
-        FRANK_HDMI_PIN_D2=32
-        FRANK_HDMI_INVERT_DIFFPAIRS=0
+        FRANK_HDMI_PIN_CLK=${SI_HDMI_PIN_CLK}
+        FRANK_HDMI_PIN_D0=${SI_HDMI_PIN_D0}
+        FRANK_HDMI_PIN_D1=${SI_HDMI_PIN_D1}
+        FRANK_HDMI_PIN_D2=${SI_HDMI_PIN_D2}
+        FRANK_HDMI_INVERT_DIFFPAIRS=${SI_HDMI_INVERT_DIFFPAIRS}
         SPACE_INVADER_PICO_VERSION="${PROJECT_VERSION}"
 )
 
@@ -165,11 +181,11 @@ add_subdirectory(lib/frank-hdmi-audio/examples/hello_hdmi)
 
 target_compile_definitions(hello_hdmi PRIVATE
         PICO_PIO_USE_GPIO_BASE=1
-        FRANK_HDMI_PIN_CLK=38
-        FRANK_HDMI_PIN_D0=36
-        FRANK_HDMI_PIN_D1=34
-        FRANK_HDMI_PIN_D2=32
-        FRANK_HDMI_INVERT_DIFFPAIRS=0
+        FRANK_HDMI_PIN_CLK=${SI_HDMI_PIN_CLK}
+        FRANK_HDMI_PIN_D0=${SI_HDMI_PIN_D0}
+        FRANK_HDMI_PIN_D1=${SI_HDMI_PIN_D1}
+        FRANK_HDMI_PIN_D2=${SI_HDMI_PIN_D2}
+        FRANK_HDMI_INVERT_DIFFPAIRS=${SI_HDMI_INVERT_DIFFPAIRS}
 )
 
 

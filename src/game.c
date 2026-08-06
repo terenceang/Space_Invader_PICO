@@ -99,10 +99,21 @@ static inline void apply_mirror(unsigned *lx, unsigned *ly) {
 #endif
 }
 
+#if SI_ENABLE_SCANLINES && SI_SCANLINE_INTENSITY > 0
+static inline uint8_t apply_scanline(uint8_t color, unsigned lx) {
+    // Darkened palette variants live at a fixed offset from their base
+    // color - see display_config.h's COLOR_*_DARK constants and
+    // dvi_display.c, which populates them. color is always one of the base
+    // COLOR_* indices here (lit_pixel_color()/COLOR_BLACK), so the offset
+    // always lands on a valid darkened entry.
+    return (lx & 1) ? (uint8_t)(color + COLOR_DARK_OFFSET) : color;
+}
+#else
 static inline uint8_t apply_scanline(uint8_t color, unsigned lx) {
     (void)lx;
     return color;
 }
+#endif
 
 #if SI_DISPLAY_ROTATION == 0 || SI_DISPLAY_ROTATION == 180
 
@@ -239,10 +250,4 @@ void game_render_scanline(uint8_t *dst, unsigned y, unsigned frame_count) {
     }
 
     render_arcade_row(dst, invaders_machine_vram(&s_machine), y);
-}
-
-void game_render_frame(uint8_t *fb, unsigned frame_count) {
-    for (unsigned y = 0; y < FRAME_HEIGHT; ++y) {
-        game_render_scanline(fb + y * FRAME_WIDTH, y, frame_count);
-    }
 }

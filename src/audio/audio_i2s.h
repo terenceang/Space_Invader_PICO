@@ -18,14 +18,19 @@
 // the real cabinet's sounds came from discrete analog circuitry, not
 // samples.
 
+// Number of 32kHz PCM audio frames per DISPLAY_REFRESH_HZ video frame -
+// shared by audio_i2s.c (mix batch size) and main.c (frame pacing), so the
+// two stay in lockstep by construction rather than by matching literals.
+#define AUDIO_FRAMES_PER_VIDEO_FRAME (FRANK_HDMI_AUDIO_RATE / DISPLAY_REFRESH_HZ)
+
 // Resets the software mixer's voice state. Call once, before the main
-// scanline loop starts calling audio_i2s_step_scanline().
+// loop starts calling audio_i2s_step_frame().
 void audio_i2s_init(void);
 
-// Steps the software audio mixer per frame (~533 samples @ 32kHz/60Hz)
-// and hands the batch to frank-hdmi-audio (matches hello_hdmi reference pattern).
+// Steps the software audio mixer per frame (AUDIO_FRAMES_PER_VIDEO_FRAME
+// samples) and hands the batch to frank-hdmi-audio (matches hello_hdmi
+// reference pattern).
 void audio_i2s_step_frame(void);
-void audio_i2s_step_scanline(void);
 
 // No physical amp/DAC in this design - always a no-op. Kept so
 // sound_effects.c's port 3 bit 5 (AMP-enable) wiring has somewhere to write

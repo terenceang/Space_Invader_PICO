@@ -263,10 +263,23 @@ Each row is physically doubled to 2 scanlines by the DVI engine's
 `DVI_VERTICAL_REPEAT` (see `Video.md`), so the overall darkening still
 lands as a repeating pattern at the final 640x480 output, with the pitch
 and orientation depending on `SI_DISPLAY_ROTATION` as observed rather than
-as separately derived per rotation mode. `SI_SCANLINE_INTENSITY` is a
-compile-time constant, so the per-channel darkening divisions fold into
-cheap multiply-shift sequences at compile time, not runtime division -
-negligible added cost per pixel.
+as separately derived per rotation mode.
+
+**Implementation (palette-based, since the v0.8.0 switch to an 8bpp
+palettized framebuffer):** darkening a pixel now means indexing a
+different, pre-darkened palette entry rather than scaling an RGB565 word
+in place - a palette index carries no brightness information to scale
+directly. `src/display_config.h` defines a `COLOR_*_DARK` variant of each
+of the 8 base `COLOR_*` indices, at a fixed `COLOR_DARK_OFFSET` (8) from
+its base color. `dvi_display_init()` (`src/dvi_display.c`) populates those
+8 extra palette entries once at boot, scaling each RGB channel of the
+corresponding base color by `SI_SCANLINE_INTENSITY` percent (a compile-time
+constant, so the division folds into a multiply-shift at compile time, not
+a runtime division) via `DARKEN_COLOR()`/`DARKEN_CHANNEL()`. `apply_scanline()`
+itself is then just `color + COLOR_DARK_OFFSET` on odd `lx`, an O(1) index
+add with no per-pixel arithmetic on color channels at all - cheaper than
+the RGB565-era approach this replaced, not just functionally equivalent to
+it.
 
 ## Image scaling
 

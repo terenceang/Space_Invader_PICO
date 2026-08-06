@@ -31,16 +31,10 @@ static int16_t debug_tone_lut[DEBUG_TONE_LUT_LEN];
 static audio_voice_t debug_voice;
 #endif
 
-#define FRAMES_PER_VID (FRANK_HDMI_AUDIO_RATE / 60) /* 533 */
-
-void audio_i2s_step_scanline(void) {
-    // Legacy per-scanline hook (audio is now written in per-frame batches)
-}
-
 void audio_i2s_step_frame(void) {
-    static int16_t frame_buf[FRAMES_PER_VID * 2];
+    static int16_t frame_buf[AUDIO_FRAMES_PER_VIDEO_FRAME * 2];
 
-    for (uint32_t i = 0; i < FRAMES_PER_VID; ++i) {
+    for (uint32_t i = 0; i < AUDIO_FRAMES_PER_VIDEO_FRAME; ++i) {
         int32_t mix = 0;
 
         if (loop_voice.active) {
@@ -75,7 +69,7 @@ void audio_i2s_step_frame(void) {
         frame_buf[i * 2 + 1] = sample16;
     }
 
-    frank_hdmi_audio_write(frame_buf, FRAMES_PER_VID);
+    frank_hdmi_audio_write(frame_buf, AUDIO_FRAMES_PER_VIDEO_FRAME);
 }
 
 void audio_i2s_set_mute(bool mute) {

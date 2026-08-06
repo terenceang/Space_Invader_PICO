@@ -51,8 +51,7 @@ int main() {
 
     printf("\n[STATUS] Rendering HDMI 640x480 @ 60Hz (320x240 8bpp palettized + HDMI Audio)...\n");
 
-#define FRAMES_PER_VID  (FRANK_HDMI_AUDIO_RATE / 60) /* 533 */
-    const uint64_t CHUNK_US = (uint64_t)FRAMES_PER_VID * 1000000ull / FRANK_HDMI_AUDIO_RATE;
+    const uint64_t CHUNK_US = (uint64_t)AUDIO_FRAMES_PER_VIDEO_FRAME * 1000000ull / FRANK_HDMI_AUDIO_RATE;
 
     uint32_t frame_count = 0;
     uint64_t chunks_pushed = 0;

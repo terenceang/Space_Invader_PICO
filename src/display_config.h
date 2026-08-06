@@ -144,4 +144,20 @@
 #define COLOR_RED     6 // Red (0xFF0000)
 #define COLOR_BLUE    7 // Blue (0x0000FF)
 
+// Darkened variants of the 8 colors above, same order, offset by
+// COLOR_DARK_OFFSET - populated by dvi_display_init() by scaling each RGB
+// channel by SI_SCANLINE_INTENSITY, and selected by game.c's
+// apply_scanline() for the CRT scanline effect (see SI_ENABLE_SCANLINES
+// above and Emulator.md's "CRT scanline effect" section). Add
+// COLOR_DARK_OFFSET to any base COLOR_* to get its darkened variant.
+#define COLOR_DARK_OFFSET   8
+#define COLOR_BLACK_DARK   (COLOR_BLACK   + COLOR_DARK_OFFSET)
+#define COLOR_WHITE_DARK   (COLOR_WHITE   + COLOR_DARK_OFFSET)
+#define COLOR_YELLOW_DARK  (COLOR_YELLOW  + COLOR_DARK_OFFSET)
+#define COLOR_CYAN_DARK    (COLOR_CYAN    + COLOR_DARK_OFFSET)
+#define COLOR_GREEN_DARK   (COLOR_GREEN   + COLOR_DARK_OFFSET)
+#define COLOR_MAGENTA_DARK (COLOR_MAGENTA + COLOR_DARK_OFFSET)
+#define COLOR_RED_DARK     (COLOR_RED     + COLOR_DARK_OFFSET)
+#define COLOR_BLUE_DARK    (COLOR_BLUE    + COLOR_DARK_OFFSET)
+
 #endif // DISPLAY_CONFIG_H

@@ -11,6 +11,16 @@
 #define VREG_VSEL       VREG_VOLTAGE_1_25
 #define DVI_BIT_CLK_KHZ 252000
 
+// Scales one 8-bit RGB channel (at bit offset `shift` within a 0xRRGGBB
+// word) down by SI_SCANLINE_INTENSITY percent. SI_SCANLINE_INTENSITY is a
+// compile-time constant, so this folds into a multiply-shift at compile
+// time rather than a runtime division - see Emulator.md's "CRT scanline
+// effect" section.
+#define DARKEN_CHANNEL(rgb, shift) \
+    (((((rgb) >> (shift)) & 0xFF) * (100 - SI_SCANLINE_INTENSITY) / 100) << (shift))
+#define DARKEN_COLOR(rgb) \
+    (DARKEN_CHANNEL(rgb, 16) | DARKEN_CHANNEL(rgb, 8) | DARKEN_CHANNEL(rgb, 0))
+
 void dvi_display_clock_init(void) {
     vreg_set_voltage(VREG_VSEL);
     sleep_ms(20);
@@ -38,6 +48,19 @@ void dvi_display_init(void) {
     frank_hdmi_set_palette(COLOR_MAGENTA, 0xFF00FF);
     frank_hdmi_set_palette(COLOR_RED,     0xFF0000);
     frank_hdmi_set_palette(COLOR_BLUE,    0x0000FF);
+
+#if SI_ENABLE_SCANLINES && SI_SCANLINE_INTENSITY > 0
+    // Darkened variants for game.c's CRT scanline effect (apply_scanline())
+    // - see display_config.h's COLOR_*_DARK constants.
+    frank_hdmi_set_palette(COLOR_BLACK_DARK,   DARKEN_COLOR(0x000000));
+    frank_hdmi_set_palette(COLOR_WHITE_DARK,   DARKEN_COLOR(0xFFFFFF));
+    frank_hdmi_set_palette(COLOR_YELLOW_DARK,  DARKEN_COLOR(0xFFFF00));
+    frank_hdmi_set_palette(COLOR_CYAN_DARK,    DARKEN_COLOR(0x00FFFF));
+    frank_hdmi_set_palette(COLOR_GREEN_DARK,   DARKEN_COLOR(0x00FF00));
+    frank_hdmi_set_palette(COLOR_MAGENTA_DARK, DARKEN_COLOR(0xFF00FF));
+    frank_hdmi_set_palette(COLOR_RED_DARK,     DARKEN_COLOR(0xFF0000));
+    frank_hdmi_set_palette(COLOR_BLUE_DARK,    DARKEN_COLOR(0x0000FF));
+#endif
 
     printf("[DEBUG] frank-hdmi-audio initialized successfully.\n");
 }
