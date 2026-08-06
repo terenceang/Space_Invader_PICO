@@ -69,13 +69,22 @@ By default, the app boots straight into the game (`DEBUG_TESTCARD 0` in `src/dis
 ## Roadmap
 
 - [x] DVI bring-up on this board's GPIO32-39 pinout
-- [x] Custom slim DVI engine (own code, not the general-purpose vendored library)
+- [x] High-performance 8bpp palettized DVI engine & 32 kHz stereo PCM embedded HDMI audio (`lib/frank-hdmi-audio`)
 - [x] Intel 8080 CPU core + Space Invaders arcade machine emulation, running the real ROM
-- [x] Video RAM → framebuffer conversion (rotation, letterboxing, color overlay)
-- [ ] Joystick/fire input wired to `invaders_machine_set_in1()`
-- [x] I2S audio output driver (`src/audio/`) - PIO1 + DMA, currently a bring-up test tone
-- [ ] Sound (ports 3/5 discrete sound-effect bits, currently dropped, not yet decoded into real playback)
+- [x] Video RAM → framebuffer conversion (8bpp indexed, letterboxing, color overlay)
+- [x] SNES controller input wired to `invaders_machine_set_in1()`
+- [x] Software audio mixer & sound-effect trigger decoder (`src/audio/`)
+
+## Acknowledgements & Attributions
+
+This project builds upon open-source implementations and hardware documentation:
+
+- **[frank-hdmi-audio](https://github.com/rh1tech/frank-hdmi-audio)** by Mikhail Matveev ([`xtreme@rh1.tech`](https://rh1.tech)) — High-performance 8bpp palettized DVI driver and HDMI Data Island audio packet transport engine (`lib/frank-hdmi-audio`).
+- **[PicoDVI-audio](https://github.com/shuichitakano/PicoDVI-audio)** by Shuichi Takano — HDMI Data Island packetization and TERC4 encoding algorithms for Pico hardware.
+- **[PicoDVI](https://github.com/Wren6991/PicoDVI)** by Luke Wren ([`Wren6991`](https://github.com/Wren6991)) — Bit-banged DVI TMDS encoding pipeline and PIO serialisers for RP2040 and RP2350 microcontrollers.
+- **[Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk)** by Raspberry Pi Ltd — Official C/C++ SDK for RP2040 and RP2350 microcontrollers.
+- **[Computer Archeology](http://www.computerarcheology.com/Arcade/SpaceInvaders/)** by Paul Robson & team — Detailed hardware documentation, memory maps, and I/O port specifications for the 1978 Taito/Midway Space Invaders arcade PCB.
 
 ## License
 
-[MIT](LICENSE) for this project's own code (the DVI engine, the 8080 CPU core and arcade machine emulation in `src/emu/`). This project vendors [PicoDVI](https://github.com/Wren6991/PicoDVI) (BSD-3-Clause, see `lib/PicoDVI/LICENSE`) for the `dvi_reference_sample` control-test target, and references Waveshare's official RP2350-PiZero demo package for the same purpose (see that package's own license, in `Sample Code/01-DVI/LICENSE` once fetched locally). **Not covered**: the Space Invaders arcade ROM itself is Taito/Midway's copyrighted work, is not included in this repository, and is not covered by this project's MIT license - see `roms/README.md`.
+[MIT](LICENSE) for this project's own code (the 8080 CPU core, arcade machine emulation in `src/emu/`, video/audio drivers, and input handling). This project incorporates [frank-hdmi-audio](https://github.com/rh1tech/frank-hdmi-audio) (GPL-3.0 / BSD-3-Clause) in `lib/frank-hdmi-audio/` and vendors [PicoDVI](https://github.com/Wren6991/PicoDVI) (BSD-3-Clause, see `lib/PicoDVI/LICENSE`) for the `dvi_reference_sample` control-test target. **Not covered**: the Space Invaders arcade ROM itself is Taito/Midway's copyrighted work, is not included in this repository, and is not covered by this project's MIT license - see `roms/README.md`.

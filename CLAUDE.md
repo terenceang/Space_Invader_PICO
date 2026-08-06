@@ -170,4 +170,11 @@ encode and vertical line doubling in DMA IRQs. 256 palette entries (0xRRGGBB) ar
 
 New `.c`/`.S` files must be added explicitly to the `add_executable(Space_Invader_PICO ...)`
 list in `CMakeLists.txt` - there's no globbing. If a new file needs a PIO program, add it
-via `pico_generate_pio_header()` following the existing `dvi_serialiser.pio` example.
+via `pico_generate_pio_header()` following the existing `snes_controller.pio` example.
+
+## Key Attributions
+
+- `lib/frank-hdmi-audio`: Mikhail Matveev (`xtreme@rh1.tech`, https://github.com/rh1tech/frank-hdmi-audio).
+- `PicoDVI-audio`: Shuichi Takano (https://github.com/shuichitakano/PicoDVI-audio).
+- `PicoDVI`: Luke Wren (`Wren6991`, https://github.com/Wren6991/PicoDVI).
+- `Space Invaders Arcade Hardware Specifications`: Computer Archeology team & Paul Robson (http://www.computerarcheology.com/Arcade/SpaceInvaders/).
