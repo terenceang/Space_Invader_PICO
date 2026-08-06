@@ -7,10 +7,8 @@
 #include "sound_data.h"
 
 // Software audio mixer for the Waveshare RP2350-PiZero - see
-// src/dvi/hdmi_audio.c and src/dvi/dvi_engine.c for how the mixed PCM stream
-// actually reaches the display, embedded in the mini-HDMI connector's TMDS
-// Data Islands (DVI_ENABLE_HDMI_AUDIO in display_config.h) rather than a
-// physical I2S DAC - there is no I2S hardware in this design.
+// frank_hdmi.h for how the mixed PCM stream reaches the display,
+// embedded in the mini-HDMI connector's TMDS Data Islands.
 //
 // Mixes up to AUDIO_MAX_VOICES simultaneous one-shot sound effects plus one
 // looping voice (real hardware only ever loops the UFO hum) into a single
@@ -24,10 +22,9 @@
 // scanline loop starts calling audio_i2s_step_scanline().
 void audio_i2s_init(void);
 
-// Steps the software audio mixer per scanline (~1.4 samples) and hands the
-// result to the HDMI Data Island transport (src/dvi/dvi_engine.c) - also
-// schedules that transport's periodic AVI/Audio InfoFrame and Audio Clock
-// Recovery packets, see audio_i2s.c.
+// Steps the software audio mixer per frame (~533 samples @ 32kHz/60Hz)
+// and hands the batch to frank-hdmi-audio (matches hello_hdmi reference pattern).
+void audio_i2s_step_frame(void);
 void audio_i2s_step_scanline(void);
 
 // No physical amp/DAC in this design - always a no-op. Kept so
@@ -62,6 +59,7 @@ void audio_i2s_set_sound_loop(sound_id_t sound_id, bool active);
 // HDMI embedded audio path (Data Island transmission, receiver decoding)
 // works before trusting real sound-effect playback.
 void audio_i2s_debug_play_test_tone(void);
+void audio_i2s_debug_stop_test_tone(void);
 #endif
 
 #endif // AUDIO_I2S_H

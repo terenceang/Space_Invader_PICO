@@ -28,15 +28,17 @@ set(PICO_BOARD waveshare_rp2350_pizero CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(Space_Invader_PICO VERSION 0.5.0 LANGUAGES C CXX ASM)
+project(Space_Invader_PICO VERSION 0.8.0 LANGUAGES C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
 # Add PicoDVI sub-library (kept only for the dvi_reference_sample control-test
-# target below - the main app uses its own slim src/dvi/ engine instead, see
-# Video.md)
+# target below)
 add_subdirectory(lib/PicoDVI/software/libdvi)
+
+# Add frank-hdmi-audio library for palettized HDMI video & audio
+add_subdirectory(lib/frank-hdmi-audio)
 
 # ----------------------------------------------------------------------------
 # Space Invaders arcade ROM: embedded into the flash image at build time from
@@ -44,14 +46,6 @@ add_subdirectory(lib/PicoDVI/software/libdvi)
 # copyrighted work, see roms/README.md). If missing, a zero-filled
 # placeholder is generated instead so the rest of the project still builds -
 # see cmake/generate_rom.cmake.
-#
-# This runs as an always-execute custom target (not a mtime-tracked
-# add_custom_command OUTPUT) rather than trying to depend on the 4 ROM
-# files directly: MAME romset zips/dumps commonly preserve decades-old
-# timestamps, which would make Ninja consider a previously-generated
-# (possibly placeholder) rom_data.c already "up to date" and skip
-# regenerating it even after the real files show up in roms/. Re-running
-# this small script every build is cheap and avoids that trap entirely.
 set(SI_ROM_DIR ${CMAKE_CURRENT_LIST_DIR}/roms)
 set(SI_ROM_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated/rom_data.c)
 add_custom_target(si_generate_rom ALL
@@ -64,13 +58,7 @@ add_custom_target(si_generate_rom ALL
 )
 
 # ----------------------------------------------------------------------------
-# Sound-effect PCM data: same idea as the ROM above, but for the 10 discrete
-# sound-effect files the user supplies locally in sounds/ (not vendored -
-# the real cabinet's sounds came from analog circuitry, not a sample ROM, so
-# there's nothing to extract instead - see sounds/README.md and
-# cmake/generate_sounds.cmake). Missing files get 0-length placeholders so
-# the rest of the project still builds. ALL custom target for the same
-# stale-timestamp reason as si_generate_rom above.
+# Sound-effect PCM data
 set(SI_SOUND_DIR ${CMAKE_CURRENT_LIST_DIR}/sounds)
 set(SI_SOUND_GEN ${CMAKE_CURRENT_BINARY_DIR}/generated/sound_data.c)
 add_custom_target(si_generate_sounds ALL
@@ -82,16 +70,12 @@ add_custom_target(si_generate_sounds ALL
         COMMENT "Embedding sound-effect PCM data (sounds/) into flash image"
 )
 
-# Add executable. Default name is the project name, version 0.1
+# Add executable.
 add_executable(Space_Invader_PICO
         src/main.c
         src/dvi_display.c
         src/testcard.c
         src/game.c
-        src/dvi/dvi_engine.c
-        src/dvi/tmds_encode_sio.c
-        src/dvi/tmds_encode_sio.S
-        src/dvi/hdmi_audio.c
         src/audio/audio_i2s.c
         src/audio/sound_effects.c
         src/emu/i8080.c
@@ -105,16 +89,9 @@ add_dependencies(Space_Invader_PICO si_generate_rom si_generate_sounds)
 pico_set_program_name(Space_Invader_PICO "Space_Invader_PICO")
 pico_set_program_version(Space_Invader_PICO "${PROJECT_VERSION}")
 
-# Modify the below lines to enable/disable output over UART/USB.
-# UART is enabled alongside USB so debug output is available immediately at
-# boot without waiting on a USB host to enumerate the CDC port. UART0
-# defaults to GPIO0 (TX) / GPIO1 (RX) on this board.
 pico_enable_stdio_uart(Space_Invader_PICO 1)
 pico_enable_stdio_usb(Space_Invader_PICO 1)
 
-# Add the standard library and the DVI engine's hardware dependencies to the
-# build. No libdvi here - the main app's DVI engine is src/dvi/, a slim
-# board-specific replacement (see Video.md).
 target_link_libraries(Space_Invader_PICO
         pico_stdlib
         pico_multicore
@@ -124,31 +101,26 @@ target_link_libraries(Space_Invader_PICO
         hardware_dma
         hardware_pio
         hardware_pwm
+        frank_hdmi_sound
 )
 
-# Add the standard include files to the build
 target_include_directories(Space_Invader_PICO PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
-        ${CMAKE_CURRENT_LIST_DIR}/src/dvi
         ${CMAKE_CURRENT_LIST_DIR}/src/audio
         ${CMAKE_CURRENT_LIST_DIR}/src/emu
         ${CMAKE_CURRENT_LIST_DIR}/src/input
 )
 
-# Required for PIO to address GPIO32-39 (RP2350B extends PIO's addressable
-# range via a runtime-configurable base; see pio_set_gpio_base() call in
-# src/dvi_display.c). Defaults to 1 on this board already, set explicitly
-# to be robust against SDK default changes.
-#
-# SPACE_INVADER_PICO_VERSION mirrors PROJECT_VERSION (single source of
-# truth) so main.c can print it in the boot banner without a second place
-# to remember to bump.
 target_compile_definitions(Space_Invader_PICO PRIVATE
         PICO_PIO_USE_GPIO_BASE=1
+        FRANK_HDMI_PIN_CLK=38
+        FRANK_HDMI_PIN_D0=36
+        FRANK_HDMI_PIN_D1=34
+        FRANK_HDMI_PIN_D2=32
+        FRANK_HDMI_INVERT_DIFFPAIRS=0
         SPACE_INVADER_PICO_VERSION="${PROJECT_VERSION}"
 )
 
-pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/dvi/dvi_serialiser.pio)
 pico_generate_pio_header(Space_Invader_PICO ${CMAKE_CURRENT_LIST_DIR}/src/input/snes_controller.pio)
 
 pico_add_extra_outputs(Space_Invader_PICO)
@@ -186,5 +158,18 @@ target_compile_definitions(dvi_reference_sample PRIVATE
 )
 
 pico_add_extra_outputs(dvi_reference_sample)
+
+# ============================================================================
+# Native frank-hdmi-audio reference example target
+add_subdirectory(lib/frank-hdmi-audio/examples/hello_hdmi)
+
+target_compile_definitions(hello_hdmi PRIVATE
+        PICO_PIO_USE_GPIO_BASE=1
+        FRANK_HDMI_PIN_CLK=38
+        FRANK_HDMI_PIN_D0=36
+        FRANK_HDMI_PIN_D1=34
+        FRANK_HDMI_PIN_D2=32
+        FRANK_HDMI_INVERT_DIFFPAIRS=0
+)
 
 

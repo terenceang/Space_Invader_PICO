@@ -141,8 +141,8 @@ wiring up anything else (e.g. joystick/fire input - still unwired, see
 | **Core Voltage ($V_{REG}$)** | `1.25V` | `VREG_VOLTAGE_1_25` (Overclock stability) |
 | **System Clock ($f_{SYS}$)** | `252.000 MHz` | Required TMDS bit clock for 640x480p60 (`DVI_BIT_CLK_KHZ` in `src/dvi_display.c`) |
 | **Video Timing** | 640x480 @ 60Hz | CEA-861 DVI standard timing (25.2 MHz pixel clock) |
-| **Framebuffer Resolution** | 320x240 @ 16bpp | Scaled 2x horizontally and vertically to 640x480 |
-| **Color Format** | RGB565 (16-bit) | 5 bits Red, 6 bits Green, 5 bits Blue |
+| **Framebuffer Resolution** | 320x240 @ 8bpp | 8-bit palette-indexed (75 KB SRAM), scaled 2x to 640x480 |
+| **Color Format** | 8bpp Indexed | 256-entry 24-bit RGB palette LUT mapped in `scratch_y` |
 
 ---
 
@@ -150,14 +150,16 @@ wiring up anything else (e.g. joystick/fire input - still unwired, see
 
 ### Dual-Core Processing Architecture
 * **Core 0**:
-  * Initializes system clock, voltage regulator, and stdio (USB CDC + UART).
-  * Pre-renders scanline pattern buffers.
-  * Pushes active scanline pointers into `dvi_q_colour_valid`.
-  * Prints one-time boot/diagnostic banner over serial before the render loop starts (no periodic output once rendering begins - see `Video.md` for why).
+  * Initializes system clock (252 MHz), voltage regulator (1.25V), and stdio (USB CDC + UART).
+  * Executes Intel 8080 CPU emulation & SNES controller input decoding.
+  * Renders 8bpp scanlines directly into `fb` (`game_render_scanline()`).
+  * Generates 32 kHz stereo PCM audio samples in per-frame batches (`audio_i2s_step_frame()`).
+  * Microsecond wall-clock anchored loop (`sleep_until()`).
 * **Core 1**:
-  * Dedicated high-speed thread executing `dvi_engine_encode_loop()` (`src/dvi/dvi_engine.c`).
-  * Encodes 16-bit RGB pixels into 10-bit TMDS symbols on the fly.
-  * Handles DMA IRQ interrupts (`DMA_IRQ_0`, DVI only - see below).
+  * Runs `frank_hdmi_run_core1()` from `lib/frank-hdmi-audio`.
+  * Converts 8bpp palette indices to RGB565 via `fill_scanline()` in `scratch_y`.
+  * TMDS hardware encoding via RP2350 SIO interpolator.
+  * Serviced by `DMA_IRQ_1` to inject HDMI Data Island packets (Audio samples, InfoFrames, ACR) during H-blanking.
 
 I2S audio (`src/audio/audio_i2s.c`) doesn't fit neatly into this split: it's
 initialized on Core 0 (`main.c`, before `multicore_launch_core1()`) but then
@@ -200,7 +202,7 @@ Connecting a serial terminal (such as VS Code Serial Monitor or TeraTerm) over e
 
 ```text
 ==================================================
-  Space Invader PICO  v0.5.0
+  Space Invader PICO  v0.8.0
 ==================================================
 [DEBUG] Microcontroller: RP2350B (Cortex-M33)
 [DEBUG] Core Voltage   : 1.25V

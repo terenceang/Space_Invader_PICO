@@ -1,38 +1,30 @@
 #ifndef DISPLAY_CONFIG_H
 #define DISPLAY_CONFIG_H
 
-// Framebuffer resolution (320x240 16bpp, scaled 2x horizontally and
+#include "frank_hdmi.h"
+
+// Framebuffer resolution (320x240 8bpp palettized, scaled 2x horizontally and
 // vertically to the 640x480 DVI output timing)
-#define FRAME_WIDTH  320
-#define FRAME_HEIGHT 240
+#define FRAME_WIDTH  FRANK_HDMI_LOGICAL_WIDTH
+#define FRAME_HEIGHT FRANK_HDMI_LOGICAL_HEIGHT
 
 // Fixed by the DVI timing this project always runs (640x480p60 - see
 // Video.md). Used to convert seconds into frame counts.
 #define DISPLAY_REFRESH_HZ 60
 
 // Debug test card: at boot, main.c shows the colour-bar/grayscale test
-// pattern (testcard.c) for DEBUG_TESTCARD_SECONDS before handing off to the
-// game. Set to 0 to skip the test card and boot straight into the game.
+// pattern (testcard.c). Set to 0 to show permanently, or N > 0 to show for N
+// seconds before handing off to the game. Set DEBUG_TESTCARD 0 to disable.
 #ifndef DEBUG_TESTCARD
 #define DEBUG_TESTCARD 1
 #endif
+#ifndef DEBUG_TESTCARD_SECONDS
 #define DEBUG_TESTCARD_SECONDS 5
-
-// Debug audio test tone: at boot, audio_i2s.c plays a continuous ~441Hz
-// tone on a dedicated debug voice, completely separate from real
-// sound-effect playback (see audio_i2s.c) - for verifying the HDMI embedded
-// audio path (Data Island transmission, receiver decoding) independent of
-// whether any sounds/*.pcm files have been supplied yet. Set to 0 (the
-// default) once confirmed working, so it doesn't play over real game sound.
-#ifndef DEBUG_AUDIO_TEST_TONE
-#define DEBUG_AUDIO_TEST_TONE 1
 #endif
 
-// HDMI Embedded Audio in TMDS (Experimental): enables HDMI Data Island & TERC4
-// packet transmission during horizontal blanking for embedded audio over mini-HDMI.
-// Set to 1 to enable HDMI embedded audio, or 0 to turn it off (the default).
-#ifndef DVI_ENABLE_HDMI_AUDIO
-#define DVI_ENABLE_HDMI_AUDIO 1
+// Debug audio test tone: set to 1 to play test tone during test card, 0 to disable.
+#ifndef DEBUG_AUDIO_TEST_TONE
+#define DEBUG_AUDIO_TEST_TONE 1
 #endif
 
 // Screen orientation, to match however the physical display is actually
@@ -141,15 +133,15 @@
 #endif
 
 // ============================================================================
-// RGB565 Color Definitions (16-bit)
+// Palette Index Definitions (8-bit palettized mode)
 // ============================================================================
-#define COLOR_WHITE   0xFFFF // 100% White
-#define COLOR_YELLOW  0xFFE0 // 100% Yellow
-#define COLOR_CYAN    0x07FF // 100% Cyan
-#define COLOR_GREEN   0x07E0 // 100% Green
-#define COLOR_MAGENTA 0xF81F // 100% Magenta
-#define COLOR_RED     0xF800 // 100% Red
-#define COLOR_BLUE    0x001F // 100% Blue
-#define COLOR_BLACK   0x0000 // 100% Black
+#define COLOR_BLACK   0 // Black (0x000000)
+#define COLOR_WHITE   1 // White (0xFFFFFF)
+#define COLOR_YELLOW  2 // Yellow (0xFFFF00)
+#define COLOR_CYAN    3 // Cyan (0x00FFFF)
+#define COLOR_GREEN   4 // Green (0x00FF00)
+#define COLOR_MAGENTA 5 // Magenta (0xFF00FF)
+#define COLOR_RED     6 // Red (0xFF0000)
+#define COLOR_BLUE    7 // Blue (0x0000FF)
 
 #endif // DISPLAY_CONFIG_H

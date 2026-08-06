@@ -118,81 +118,48 @@ attract-mode loop, which is itself a correct emulation of idle hardware.
 `generated/rom_data.c`). If you add anything that needs to know ROM contents at build
 time, that generated file / `src/emu/rom_data.h` is where to look.
 
-### DVI pipeline (`src/dvi/`, `src/dvi_display.*`)
+#### DVI & HDMI Audio pipeline (`lib/frank-hdmi-audio`, `src/dvi_display.*`)
 
 The essentials:
 
 **This board's DVI pins (GPIO 32-39) fall outside the RP2350's HSTX peripheral's fixed
-GPIO 12-19 range, so HSTX cannot be used.** Video output is instead a PIO + DMA
-bit-banged TMDS pipeline (`src/dvi/`) - a slim, project-owned engine hardcoded for this
-board's exact configuration (GPIO 32-39, 640x480p60, RGB565), *not* the general-purpose
-vendored PicoDVI library (`lib/PicoDVI/`, kept only to build `dvi_reference_sample`).
+GPIO 12-19 range, so HSTX cannot be used.** Video output and HDMI Data Island audio are driven by
+`lib/frank-hdmi-audio` - a high-performance 8bpp palettized driver configured for GPIO 32-39,
+640x480p60 output, 320x240 8bpp palettized framebuffer, and 32 kHz stereo PCM HDMI embedded audio.
 
 **Dual-core split**, set up in `main.c` / `dvi_display.c`:
-- **Core 0** (`main.c`): scanline *producer*. A plain busy loop with no interrupts - each
-  iteration picks/generates one 320-pixel scanline (test card or game) and pushes a
-  *pointer* to it into `dvi_q_colour_valid`, 240 times per frame, then repeats.
-  `queue_add_blocking_u32()` throttles it to match consumption.
+- **Core 0** (`main.c`): scanline / frame producer & CPU emulator. Updates the 320x240 8-bit
+  palette-indexed framebuffer (`fb`) and pushes 32 kHz PCM audio samples via `frank_hdmi_audio_write()`.
 - **Core 1** (`dvi_display.c: core1_main()`, never returns): runs
-  `dvi_engine_encode_loop()` (`src/dvi/dvi_engine.c`), which pulls scanline pointers,
-  TMDS-encodes them via the RP2350's SIO hardware encoder
-  (`src/dvi/tmds_encode_sio.c/.S`), and feeds an internal queue that the DMA IRQ handler
-  (also on Core 1) drains into the PIO TX FIFOs for the three TMDS data lanes on
-  GPIO 32-39. The differential clock pair (GPIO 38/39) is driven separately by a PWM
-  slice, not PIO.
+  `frank_hdmi_run_core1()` (`lib/frank-hdmi-audio/src/frank_hdmi.c`), which converts the 8bpp
+  framebuffer to RGB565 via a 256-entry LUT in `scratch_y`, TMDS-encodes scanlines, injects audio
+  Data Islands during blanking, and drives PIO TX FIFOs for the three TMDS data lanes on GPIO 32-39.
 
-**Resolution scaling (320x240 framebuffer -> 640x480p60 wire timing)** happens via two
-different mechanisms on two axes: horizontal 2x is done during TMDS encode
-(`hdouble` config in `tmds_encode_sio.c`), vertical 2x is done by physically
-retransmitting each encoded scanline twice in the DMA IRQ handler
-(`DVI_VERTICAL_REPEAT` in `dvi_engine.c`).
-
-**Hard timing rule - read before adding anything to the Core 0 loop or the Core 1 encode
-path**: no call may block for more than a few tens of microseconds. The TMDS buffer depth
-is only 3 encoded scanlines (~190us of slack at 640x480p60); once it empties, the DMA IRQ
-handler immediately falls back to a solid red scanline until the producer catches up. A
-`printf()` over UART from the hot loop is enough to visibly break this (this happened
-during bring-up - see `Video.md`'s "Timing budget" section for the full incident writeup).
-Bounded CPU-bound work (game logic, collision checks, sprite updates) is fine; `sleep_ms()`,
-blocking UART/USB/I2C/SPI, and flash writes are never fine on either core once rendering
-has started.
-
-**RP2350B GPIO >= 32 quirks** (see `Hardware.md` for full detail) that matter if you touch
-`dvi_display.c` or `src/dvi/dvi_serialiser.pio`:
-- `pio_set_gpio_base(pio0, 16)` must run before `dvi_engine_init()` claims any PIO
-  program/state machine, and `PICO_PIO_USE_GPIO_BASE=1` must stay set at compile time
-  (`CMakeLists.txt`) - PIO can only address 32 consecutive GPIOs at a time and the default
-  window (0-31) doesn't cover this board's pins.
-- The PIO program uses the 64-bit pin-mask helpers (`pio_sm_set_pins_with_mask64()` /
-  `pio_sm_set_pindirs_with_mask64()`) since the 32-bit variants don't support pins >= 32.
-  This was the root cause of an earlier "no picture" bug during bring-up.
-- The 252 MHz system clock / 1.25V core voltage setup (`dvi_display_clock_init()`) must
-  run before `stdio_init_all()`, so the clock is stable before UART/USB come up.
+**Resolution scaling & Palette LUT**:
+Logical 320x240 8bpp framebuffer is scaled to 640x480 wire timing via pixel doubling during TMDS
+encode and vertical line doubling in DMA IRQs. 256 palette entries (0xRRGGBB) are mapped via
+`frank_hdmi_set_palette()`.
 
 ### File map
 
 | Path | Role |
 |---|---|
-| `src/main.c` | Entry point; Core 0 scanline producer / dispatch loop (test card -> game handoff) |
-| `src/game.c` / `.h` | Paces the emulated CPU against the frame loop, converts video RAM into scanlines |
+| `src/main.c` | Entry point; Core 0 scanline/frame producer loop & audio dispatch |
+| `src/game.c` / `.h` | Paces the emulated CPU against the frame loop, converts video RAM into 8bpp scanlines |
 | `src/emu/i8080.c` / `.h` | Intel 8080 CPU interpreter - full instruction set, no machine-specific knowledge |
 | `src/emu/invaders_machine.c` / `.h` | Space Invaders memory map, I/O ports, shift register, interrupt delivery |
 | `src/emu/rom_data.h` | Declares the embedded ROM array defined by the CMake-generated source |
 | `roms/` | User-supplied real arcade ROM files go here (gitignored, not vendored) |
 | `cmake/generate_rom.cmake` | Embeds `roms/invaders.{h,g,f,e}` into a linkable C array at build time |
-| `src/testcard.c` / `.h` | Debug test pattern generator |
-| `src/display_config.h` | Framebuffer size, RGB565 color constants, refresh rate, debug flags |
-| `src/dvi_display.c` / `.h` | Clock/voltage setup, PIO GPIO-base fix, bus priority, Core 1 entry point |
-| `src/dvi/dvi_engine.c` / `.h` | Hardcoded 640x480p60 timing, DMA control-block lists, vertical timing FSM, DMA IRQ handler, scanline queues |
-| `src/dvi/dvi_serialiser.pio` | PIO program shifting TMDS symbols out to GPIO (trimmed from the vendored version) |
-| `src/dvi/tmds_encode_sio.c` / `.h` / `.S` | SIO hardware TMDS encoder wrapper for this board's exact 16bpp/hdouble config |
-| `src/dvi/util_queue_u32_inline.h` | Generic pico_util queue-of-pointers helper, copied so `src/dvi/` has no dependency on the vendored library |
-| `src/dvi/hdmi_audio.c` / `.h` | HDMI Data Island packet builders (ACR, Audio Sample, AVI/Audio InfoFrame) and TERC4 TMDS encoding for embedded audio over the mini-HDMI connector |
-| `src/audio/audio_i2s.c` / `.h` | Software audio mixer (no physical I2S hardware) - mixes one-shot + looping sound-effect voices into a mono PCM stream and schedules it, plus periodic InfoFrames/ACR, onto the DVI engine's HDMI Data Island transport |
-| `src/audio/sound_effects.c` / `.h` | Decodes the real cabinet's port 3/5 sound-effect bits (UFO/Shot/Flash/Invader die/Extended play/AMP-enable, fleet movement x4/UFO hit) into `audio_i2s_*` calls |
-| `src/audio/sound_data.h` | `sound_id_t` enum + `sound_sample_t`/`sound_table[]` declarations for the embedded PCM data |
-| `sounds/` | User-supplied sound-effect PCM files go here (gitignored, not vendored - see Emulator.md's "Sound effects" section for why there's no ROM to extract these from) |
-| `cmake/generate_sounds.cmake` | Embeds `sounds/*.pcm` into `sound_table[]` at build time, same pattern as `generate_rom.cmake` |
+| `src/testcard.c` / `.h` | Debug test pattern generator (8bpp palettized) |
+| `src/display_config.h` | Framebuffer size, 8-bit palette color constants, refresh rate, debug flags |
+| `src/dvi_display.c` / `.h` | Clock/voltage setup, palette setup, Core 1 entry point launching `frank_hdmi_run_core1()` |
+| `lib/frank-hdmi-audio/` | Core DVI + HDMI Data Island audio driver library (8bpp LUT, PIO TMDS serialisers, DMA IRQs) |
+| `src/audio/audio_i2s.c` / `.h` | Software audio mixer - mixes sound-effect voices into 32 kHz stereo PCM and outputs via `frank_hdmi_audio_write()` |
+| `src/audio/sound_effects.c` / `.h` | Decodes port 3/5 sound-effect bits into `audio_i2s_*` calls |
+| `src/audio/sound_data.h` | `sound_id_t` enum + `sound_sample_t`/`sound_table[]` declarations |
+| `sounds/` | User-supplied sound-effect PCM files |
+| `cmake/generate_sounds.cmake` | Embeds `sounds/*.pcm` into `sound_table[]` at build time |
 | `Hardware.md` | Board pinout (DVI + I2S audio), RP2350B-specific gotchas, bring-up history |
 | `Video.md` | Full DVI pipeline writeup, timing budget, why you can't block Core 0/1 |
 | `Emulator.md` | 8080 core + arcade machine emulation writeup, video RAM rotation, known limitations |

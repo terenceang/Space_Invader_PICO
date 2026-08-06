@@ -8,7 +8,7 @@
 // sounds/README.md. audio_i2s.c mixes at this rate with no resampling, so a
 // file recorded/converted at any other rate plays back at the wrong
 // pitch/speed.
-#define SOUND_SAMPLE_RATE_HZ 44100
+#define SOUND_SAMPLE_RATE_HZ 32000
 
 typedef struct {
     const int16_t *samples; // mono 16-bit PCM, SOUND_SAMPLE_RATE_HZ

@@ -32,7 +32,7 @@ trigger bits (port 3/5 - see `src/audio/sound_effects.c`,
 
 ## Required format
 
-**16-bit signed little-endian PCM, mono, 44100 Hz, no file header** (not a
+**16-bit signed little-endian PCM, mono, 32000 Hz, no file header** (not a
 `.wav` - the raw sample data only). `cmake/generate_sounds.cmake` embeds
 these bytes directly into the flash image with no parsing or resampling, so
 anything else (a WAV header still attached, a different sample rate, stereo)
@@ -41,7 +41,7 @@ will either fail to build cleanly or play back distorted/at the wrong pitch.
 Converting from a WAV/MP3/etc. with `ffmpeg`:
 
 ```sh
-ffmpeg -i input.wav -ar 44100 -ac 1 -f s16le sounds/shot.pcm
+ffmpeg -i input.wav -ar 32000 -ac 1 -f s16le sounds/shot.pcm
 ```
 
 This folder is gitignored except this file - nothing you place here gets

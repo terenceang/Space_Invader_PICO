@@ -1,14 +1,25 @@
-#ifndef _UTIL_QUEUE_U32_INLINE_H
-#define _UTIL_QUEUE_U32_INLINE_H
+/*
+ * Header-only specialisation of pico_util's queue for 32-bit elements:
+ * drop the size byte that the generic API copies around, and inline the
+ * hot push/pop paths so the IRQ handler doesn't take a function call per
+ * scanline. Only used internally by frank_dvi.c.
+ *
+ * (c) 2026 Mikhail Matveev <xtreme@rh1.tech>, https://rh1.tech
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Based on libdvi by Luke Wren and contributors
+ * (https://github.com/Wren6991/PicoDVI).
+ *
+ * Copyright (c) 2021 Luke Wren and contributors.
+ */
+#ifndef FRANK_QUEUE_INLINE_H_
+#define FRANK_QUEUE_INLINE_H_
 
 // Faster versions of the functions found in pico/util/queue.h, for the common
-// case of 32-bit-sized elements (e.g. pointers). Can be used on the same
-// queue data structure, and mixed freely with the generic access methods, as
-// long as element_size == 4.
-//
-// Generic pico_util helper, not DVI-specific - copied verbatim from
-// lib/PicoDVI/software/libdvi/util_queue_u32_inline.h so src/dvi/ has no
-// remaining dependency on the vendored library.
+// case of 32-bit-sized elements. Can be used on the same queue data
+// structure, and mixed freely with the generic access methods, as long as
+// element_size == 4.
 
 #include "pico/util/queue.h"
 #include "hardware/sync.h"
